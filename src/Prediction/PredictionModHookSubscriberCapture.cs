@@ -154,6 +154,7 @@ internal sealed class PredictionModHookSubscriberCapture
         var mod = AssemblyInfo.ModForType(type, out bool isBaseGame);
         if (PredictionModModelSupport.IsBaseLibCardModifier(subscriber)
             || KnownPreRootSubscriberTypeNames.Contains(type.FullName ?? string.Empty)
+            || ThirdPartyAdapterRegistry.IsAllowedCombatSubscriber(type)
             || (!isBaseGame && mod?.manifest?.affectsGameplay is false))
         {
             return;

@@ -1,0 +1,15 @@
+{
+  "id": "CombatSolver-Heart",
+  "name": "求解器·心脏适配",
+  "author": "Torch",
+  "description": "让战斗路线求解器看懂 Act4Heart 的腐化心脏（以及心脏前的盾与矛）。装上它之后，求解器能预测心脏三轮循环的真实分支、死亡节拍的每次反伤，以及无敌护盾的每回合上限。需要先启用战斗路线求解器本身，并同时安装 Act4Heart。",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "affects_gameplay": false,
+  "min_game_version": "0.111.0",
+  "dependencies": [
+    { "id": "CombatSolver", "min_version": "0.43.2" },
+    { "id": "Act4Heart", "min_version": "1.1.7" }
+  ]
+}

@@ -10,6 +10,33 @@
 - 六项历史计数改由事件追加时维护；三类 Fork 按值继承，状态键不再反复扫描历史，读者牌启用条件不变。生命周期与数据见 [增量历史计数](strategy/incremental-history-counters.md)。
 - 转置表新增首次触顶展开数、峰值条目数、触顶旁路次数、结束标签数与标签分布诊断。默认百万条上限和准入规则不变；数据见 [触顶证据](performance/transposition-cap-evidence-20260920.md)。
 
+- 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+
+## 未发布：AFTP 第一幕——强盗解锁与「常量构造」攻击登记（2026-09-21）
+
+- 第三方登记点两处收紧/补齐，都只对已登记的第三方内容生效，登记表为空时求解器行为逐字不变。
+  `ThirdPartyAdapterRegistry.RegisterStableAttack` 从「登记方说了算」改成**运行期可证伪**：
+  `IntentForecaster` 命中第三方登记时还要过 `StableAttackShape.IsConstantConstruction`——只有闭包显示类
+  声明在 `SingleAttackIntent` / `MultiAttackIntent` **自己内部**（也就是那两个 `(int)` / `(int, int)`
+  构造函数捕下的构造实参）才算数；调用方传进来的委托、捕获局部变量的闭包、以及派生意图在自己构造函数里
+  再造一层闭包的 `Dynamic*AttackIntent` 一律不认，近似清单照旧记一条「动态伤害」。这样适配层就不必
+  把非 `const` 的伤害数值抄成第二份真相。新增独立核对程序 `tools/StableAttackShapeChecks`（`ok=6`）。
+  另新增 `ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove(怪物类型名, 行动 Id)`：第三方怪物
+  「逃跑/脱战」的行动除了效果侧移出 roster，还要让意图预测侧停止给它排后续回合；`MonsterMoveEffects.RemovesOwner`
+  接入这张表。登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+- 往昔之章适配：第一幕 35 条「常量构造」攻击按 `RegisterStableAttack` 登记（`ExordiumStableAttacks`），
+  压掉这些战斗里每一回合的 `:动态伤害` 近似；`Hexaghost.DIVIDER`（按玩家血量现算）与
+  `LouseGreen`/`LouseRed` 的 `BITE`（读入场时抽到的伤害）刻意保留为动态。
+  同时解锁第一个此前走安全失败路径的怪物 **Looter（强盗）**：`MUG_BRANCH` 按播种的 `_mugCount`
+  重算、`MUG`/`LUNGE` 走本体既有的 `RecordThievery` 偷金币口径并自增计数、`SMOKE_BOMB` 给 6 点格挡、
+  `ESCAPE` 让施法者离场（效果侧 `CreatureEscaped` + 意图侧的 owner-removing 声明）。覆盖范围、
+  刻意不登记的形状与剩余 9 个怪物的逐项缺口见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md)
+  §2.1／§2.2／§2.7／§2.8。
+- 验证：求解器本体与两个适配 Mod 均 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；`tools/StableAttackShapeChecks` 六条断言全过；产物已反编译核对登记条目与表内容。
+  **未验证**：本轮没有在游戏内跑过真实 AFTP 战斗——Looter 的偷金币/逃跑与「不再报动态伤害」
+  两条仍需一局实机复核（§4 第 1 条 ⑤⑥）。
+
 ## 0.43.1：英文界面启动与疯狂科学成长策略（2026-09-20）
 
 - 成长策略补入事件牌“疯狂科学”的能力／改进变体；其他类型与效果不计为局外升级。战斗根根据可升级的正式牌组卡数量及已存在的改进层数冻结可兑现上限；模拟真正施加改进后才记收益，超过上限不重复给信用。策略侧栏独立额度、忽略局外收益、成长目标与 Fork 状态指纹沿用既有管线。定向原生对照见测试矩阵。

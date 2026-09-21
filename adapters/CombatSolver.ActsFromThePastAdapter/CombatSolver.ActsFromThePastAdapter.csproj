@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    求解器 · 往昔之章适配 Mod。
+
+    独立 Mod：向战斗路线求解器登记 Acts from the Past 第一幕（Exordium）怪物的
+    行动分支解析与行动效果。求解器本体不认识这些类型，登记表为空时行为不变。
+  -->
+
+  <PropertyGroup>
+    <AssemblyName>CombatSolver-AFTP</AssemblyName>
+    <ModId>CombatSolver-AFTP</ModId>
+    <RootNamespace>CombatSolver.ActsFromThePastAdapter</RootNamespace>
+    <Version>0.1.0</Version>
+    <Description>Acts from the Past（往昔之章）第一幕的求解器适配。</Description>
+  </PropertyGroup>
+
+  <Import Project="../Adapter.props" />
+
+  <Target Name="CopyAdapterMod" AfterTargets="Build" Condition="'$(CopyModOnBuild)' == 'true'">
+    <MakeDir Directories="$(ModOutputDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/$(ModId).json" DestinationFolder="$(ModOutputDir)" />
+  </Target>
+
+</Project>

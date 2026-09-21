@@ -1360,8 +1360,13 @@ internal static partial class SolverController
     }
 
     private static string FormatIncompatibleModFailure(IncompatibleGameplayModException incompatible)
-        => $"[color={SolverUiTokens.Palette.DangerHex}]" +
-           SolverText.Format($"检测到不兼容的第三方 Mod：{EscapeRichText(incompatible.PlayerFacingModName)}。建议卸载该 Mod 并重启游戏后再使用求解器。") + "[/color]";
+    {
+        // 被拒的补丁本该由适配 Mod 解掉：这时缺的是「启用适配」，而不是「卸载那个玩法 Mod」。
+        string advice = incompatible.UnloadedAdapter is { } adapter
+            ? SolverText.Format($"检测到不兼容的第三方 Mod：{EscapeRichText(incompatible.PlayerFacingModName)}。它对应的求解器适配 {EscapeRichText(adapter.PlayerFacingAdapter)} 本次没有加载（{EscapeRichText(adapter.DescribeLoadStateForPlayer())}）。请在 Mod 设置里启用该适配 Mod，重启游戏后再使用求解器。")
+            : SolverText.Format($"检测到不兼容的第三方 Mod：{EscapeRichText(incompatible.PlayerFacingModName)}。建议卸载该 Mod 并重启游戏后再使用求解器。");
+        return $"[color={SolverUiTokens.Palette.DangerHex}]{advice}[/color]";
+    }
 
     internal static string FormatSearchFailureForTesting(
         Exception exception,

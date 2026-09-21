@@ -109,7 +109,7 @@ internal static class IntentForecaster
                 int baseDamage = Math.Max(0, (int)(attack.DamageCalc?.Invoke() ?? single));
                 for (int i = 0; i < Math.Max(attack.Repeats, 1); i++)
                     hits.Add(new ForecastAttackHit(single, baseDamage));
-                if (attack.DamageCalc?.Target != null && !IsKnownStableAttack(monster, move.Id))
+                if (attack.DamageCalc?.Target != null && !IsKnownStableAttack(monster, move.Id, attack))
                 {
                     exact = false;
                     approximationDetails.Add($"{monster.Id.Entry}.{move.Id}:动态伤害");
@@ -136,8 +136,15 @@ internal static class IntentForecaster
         return hits;
     }
 
-    private static bool IsKnownStableAttack(MonsterModel monster, string moveId)
-        => (monster.GetType().Name, moveId) is
+    private static bool IsKnownStableAttack(MonsterModel monster, string moveId, AttackIntent attack)
+    {
+        string typeName = monster.GetType().Name;
+        // 第三方适配 Mod 登记的攻击优先，但要**现场核对形状**：登记方声明的「数值在构造时固定」
+        // 只能靠这个意图实例自己证明，见 ThirdPartyAdapterRegistry.IsStableAttackShape。
+        // 形状对不上就当没登记，近似清单照旧记一条「动态伤害」——宁可少报可信度，不可多报。
+        if (ThirdPartyAdapterRegistry.HasStableAttack(typeName, moveId))
+            return ThirdPartyAdapterRegistry.IsStableAttackShape(attack);
+        return (typeName, moveId) is
             ("PhantasmalGardener", "BITE_MOVE" or "LASH_MOVE" or "FLAIL_MOVE") or
             ("FuzzyWurmCrawler", "FIRST_ACID_GOOP" or "ACID_GOOP") or
             ("BowlbugNectar", "THRASH_MOVE" or "THRASH2_MOVE") or
@@ -246,6 +253,7 @@ internal static class IntentForecaster
             ("TestSubject", "BITE_MOVE" or "SKULL_BASH_MOVE" or "MULTI_CLAW_MOVE"
                 or "PHASE3_LACERATE_MOVE" or "BIG_POUNCE") or
             ("WaterfallGiant", "STOMP_MOVE" or "RAM_MOVE" or "PRESSURE_GUN_MOVE" or "PRESSURE_UP_MOVE");
+    }
 
     private static MoveState RollNext(
         Cursor cursor,

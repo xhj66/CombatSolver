@@ -120,10 +120,21 @@ internal sealed partial class SimulatedCombatState
             "Tunneler" => Bool("_isStunned"),
             "LagavulinMatriarch" or "SlumberingBeetle" => Bool("_isAwake"),
             "Queen" => Bool("_hasAmalgamDied"),
-            _ => "-",
+            _ => ThirdPartyMonsterState(creature, type),
         };
 
         string Bool(string name) => GetMonsterBool(creature, name) ? "1" : "0";
+    }
+
+    /// <summary>
+    /// 第三方适配 Mod 登记的怪物标量状态。名单里的成员在根捕获时播种进模拟状态，
+    /// 于是续用核对与状态指纹都能看见它们；未登记的类型返回 <c>"-"</c>。
+    /// </summary>
+    private string ThirdPartyMonsterState(Creature creature, string typeName)
+    {
+        if (!ThirdPartyAdapterRegistry.TryGetMonsterStateMembers(typeName, out string[] members))
+            return "-";
+        return string.Join(',', members.Select(member => GetMonsterInt(creature, member)));
     }
 
     private static string DescribeLiveMonsterState(Creature creature)
@@ -139,10 +150,18 @@ internal sealed partial class SimulatedCombatState
             "Tunneler" => Bool("_isStunned"),
             "LagavulinMatriarch" or "SlumberingBeetle" => Bool("_isAwake"),
             "Queen" => Bool("_hasAmalgamDied"),
-            _ => "-",
+            _ => ThirdPartyLiveMonsterState(monster, monster.GetType().Name),
         };
 
         string Bool(string name) => MonsterValueReader.ReadBool(monster, name) ? "1" : "0";
+    }
+
+    /// <summary>第三方适配 Mod 登记的怪物标量状态（实机侧读取）。</summary>
+    private static string ThirdPartyLiveMonsterState(MonsterModel monster, string typeName)
+    {
+        if (!ThirdPartyAdapterRegistry.TryGetMonsterStateMembers(typeName, out string[] members))
+            return "-";
+        return string.Join(',', members.Select(member => MonsterValueReader.ReadInt(monster, member)));
     }
 
     private static int LiveDeathPhase(Creature creature)

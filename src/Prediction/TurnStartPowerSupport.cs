@@ -111,6 +111,14 @@ internal static partial class TurnStartPowerSupport
                         .CardsPlayedThisTurn = 0;
                     break;
             }
+            // 第三方 Power 的回合开始重置。上面那个 switch 按原版类型写死，落在它外面的第三方类型
+            // 只有在适配登记表里才会被重置；漏掉的表现是「每回合计数永不清零」，从第二回合起全错。
+            if (ThirdPartyAdapterRegistry.TryGetTurnStartPower(
+                    power.GetType().Name,
+                    out ThirdPartyAdapterRegistry.TurnStartPowerHandler turnStartPower))
+            {
+                turnStartPower(simulator, combat, power, participants);
+            }
             if (combat.HasPendingChoice)
                 return true;
         }

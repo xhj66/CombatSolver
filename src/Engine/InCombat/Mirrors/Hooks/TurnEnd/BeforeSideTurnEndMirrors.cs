@@ -38,6 +38,39 @@ internal static class BeforeSideTurnEndMirrors
     private static readonly Registry VeryEarlyRegistry = CreateVeryEarlyRegistry();
     private static readonly Registry EarlyRegistry = CreateEarlyRegistry();
     private static readonly Registry Registry = CreateRegistry();
+    private static readonly object RegistrationLock = new();
+    private static bool _earlySealed;
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.BeforeSideTurnEndEarly"/> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 只覆盖 Early 这一个阶段：VeryEarly 与常规阶段目前没有第三方入口，需要时应各自补一个，
+    /// 而不是把某个阶段的处理器挪到别的阶段上——阶段顺序本身就是语义的一部分
+    /// （见 docs/THIRD_PARTY_ADAPTERS.md §3.1）。
+    /// </remarks>
+    public static void RegisterEarly(
+        Type modelType,
+        Action<AbstractModel, BeforeSideTurnEndMirrorContext> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("回合结束镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_earlySealed)
+                throw new InvalidOperationException("BeforeSideTurnEndEarly 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.Register(EarlyRegistry, modelType, handler);
+        }
+    }
+
+    private static void SealEarly()
+    {
+        if (Volatile.Read(ref _earlySealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _earlySealed, true);
+    }
 
     public static void InvokeVeryEarly(AbstractModel listener, BeforeSideTurnEndMirrorContext context)
     {
@@ -46,6 +79,7 @@ internal static class BeforeSideTurnEndMirrors
 
     public static void InvokeEarly(AbstractModel listener, BeforeSideTurnEndMirrorContext context)
     {
+        SealEarly();
         EarlyRegistry.Invoke(listener, context);
     }
 

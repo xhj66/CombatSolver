@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    求解器 · 心脏适配 Mod。
+
+    独立 Mod：向战斗路线求解器登记 Act4Heart 的腐化心脏（CorruptHeart）与它的两个精英
+    （SpireShield / SpireSpear）的行动分支、行动效果，以及死亡节拍／无敌这两个第三方 Power。
+    求解器本体不认识这些类型，登记表为空时行为不变。
+  -->
+
+  <PropertyGroup>
+    <AssemblyName>CombatSolver-Heart</AssemblyName>
+    <ModId>CombatSolver-Heart</ModId>
+    <RootNamespace>CombatSolver.Act4HeartAdapter</RootNamespace>
+    <Version>0.1.0</Version>
+    <Description>Act4Heart（心脏）腐化心脏战斗的求解器适配。</Description>
+  </PropertyGroup>
+
+  <Import Project="../Adapter.props" />
+
+  <Target Name="CopyAdapterMod" AfterTargets="Build" Condition="'$(CopyModOnBuild)' == 'true'">
+    <MakeDir Directories="$(ModOutputDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/$(ModId).json" DestinationFolder="$(ModOutputDir)" />
+  </Target>
+
+</Project>

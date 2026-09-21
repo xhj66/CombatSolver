@@ -1,4 +1,4 @@
-﻿# 第三方 Mod 适配手册
+# 第三方 Mod 适配手册
 
 写给想让战斗路线求解器看懂自家 Mod 的作者。
 
@@ -54,8 +54,19 @@ CrabRagePower 的同伴死亡结算由 `AfterDeathMirrors` 独占：力量、格
 
 三条都不满足就抛 `IncompatibleGameplayModException`，整个求解器停摆。
 
-> **当前限制。** 第 3 条那份白名单是私有静态集合，没有公开登记入口。目前只能靠 publicizer
-> 写进去。这是明确要补的扩展点之一，见第 6 节。
+第 3 条现在有公开登记入口（第三方适配 Mod 在初始化时调用，需 publicizer）：
+
+```csharp
+ThirdPartyAdapterRegistry.AllowCombatSubscriber("SomeMod.SomeHookType"); // 或 Type 重载
+```
+
+放行是**按类型全名精确匹配**的。放行某个类型等于向玩家承诺「这个订阅者不会改变战斗模拟」，
+所以要先把它在 `AbstractModel` 上覆写的 **全部** hook 列出来逐一评估，并用自检钉死名单——
+对方新增订阅者时自检失败、整个适配拒绝登记，比悄悄漏掉一个新订阅者好。
+
+Act4Heart 就是这条路的实例：它的 `Dolso.ModelHook` 有两个具体子类，其中
+`Act4Heart.Keys.GreenKeyHooks` 覆写了 `TryModifyRewards`（不在惰性清单里），
+不放行就会让**装了它的任何一局都无法预测**。
 
 ### 1.2 镜像：进来之后每个类型的五种下场
 
@@ -455,6 +466,124 @@ CardRemovalValueMirrors.Register<YourDefend>(-10d);
 
 见第 6 节。目前只能 Harmony 打补丁，或者等对应的扩展点合并。
 
+### 2.13 第三方怪物与 Power：按运行时 `Type` 登记
+
+上面 §2.1 那张「46 张注册表」里，绝大多数入口是泛型 `Register<TYourType>(handler)`。**外部程序集
+拿不到泛型形参**——被适配的 Mod 不在编译期引用里，类型只能在运行期按全名查出来——所以凡是给
+第三方用的入口都额外提供 `Type` 重载，两条路共用同一张表、同一套重复登记检查：
+
+```csharp
+XxxMirrors.Register(Type modelType, Action<AbstractModel, XxxMirrorContext> handler);
+ModifyHpLostMirrors.RegisterAfterOstyLate(Type modelType, Func<AbstractModel, ModifyHpLostMirrorContext, decimal> handler);
+BeforeSideTurnEndMirrors.RegisterEarly(Type modelType, Action<AbstractModel, BeforeSideTurnEndMirrorContext> handler);
+PowerHiddenStateMirrors.Register(Type powerType, string name, Func<CombatPredictionSimulator, PowerModel, long> read);
+PowerHiddenStateMirrors.RegisterRootCapture(Type powerType, Action<CombatPredictionSimulator, PowerModel, PowerModel> capture);
+AfterDeathMirrors.RegisterIgnored(Type modelType);
+```
+
+处理器收到的是 `AbstractModel`，自己转成需要的基类（`PowerModel` 是公开类型，可用；
+被适配 Mod 自己的具体类型仍只能反射）。**不要在处理器里做 `Type` 比较分派**——登记本身就是
+分派，处理器只该处理那一个类型。
+
+怪物那侧的入口集中在 `ThirdPartyAdapterRegistry`，同样只收字符串/`Type`：
+
+| 入口 | 用途 |
+|---|---|
+| `RegisterMonsterMoveEffect(怪物类型名, 行动 Id, handler)` | 某个行动的**非攻击部分**（攻击仍由通用攻击循环按意图结算） |
+| `RegisterMonsterBranchResolver(怪物类型名, 分支 Id, resolver)` | 自定义分支状态的下一步选择 |
+| `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |
+| `RegisterStaticIntMembers(怪物类型名, 成员名…)` | 只在根捕获读一次的静态数值 |
+| `RegisterStableAttack(怪物类型名, 行动 Id)` | 该行动的攻击数值在意图构造时即已固定（`MultiAttackIntent(常量, 常量)` 一类），压掉预测器的「动态伤害」误报。**运行期会核对意图形状**，见下 |
+| `RegisterOwnerRemovingMove(怪物类型名, 行动 Id)` | 该行动把**施法者自己移出战斗**（逃跑／脱战）。效果侧由登记方在处理器里调 `CreatureEscaped`，这一条负责让意图预测侧停止给它排后续回合 |
+| `RegisterTurnStartPower(Power 类型名, handler)` | 第三方 Power 在自己那一方回合开始时的状态重置 |
+| `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
+
+#### 可变的「状态字节」不要直接用冻结的条件分支
+
+原版 `ConditionalBranchState` 的选择函数可以读**可变私有字段**。求解器在根捕获时会把条件分支
+的取值冻结成一份快照，快照是按**捕获那一刻**的字段值算的——之后每个行动推进字段都不会改变它。
+直接用冻结值会从第一步就错，而且错得很安静。
+
+正确做法是把那个字段登记成**怪物标量状态**（`RegisterMonsterStateMembers`，
+于是它随分支 Fork、进状态指纹、进续用核对文本），再由 `RegisterMonsterBranchResolver`
+按当前值解析。Act4Heart 的三个怪物（`CorruptHeart` / `SpireShield` / `SpireSpear`）都是这个形状：
+一个 `private byte state` 由各行动的 `state |= 1` / `state |= 2` / `state = 0` 推进
+（`SpireSpear` 的**初值是 2**，不是 0——这类初值必须逐个核对源码）。
+
+三个条件都不命中时明确抛 `PredictionUnsupportedException`，对应实机「找不到下一个状态」的失败，
+不要猜一个。
+
+#### 只抽一次的私有 RNG：复刻，不要绕过
+
+有些第三方怪物会用**每只怪物各自一条**的 RNG（`MonsterModel.Rng`，由
+`CombatState.CreateCreature` 按「run 种子 + 坐标 + CombatId」播种），它与
+`simulator.Rng.MonsterAi` 是两条互不影响的流。求解器不模拟这条流。
+
+不要因为它「只是一次抽样」就跳过：那条流被推动的次数会改变之后每一次抽样，绕过会让整局错位。
+做法是把实机实例上的流整份搬进一个可 Fork 的预测状态（`IPredictionStateForkable`），
+在预测里**照源码的抽样顺序**复刻，并把已抽次数写进一个自建的怪物标量成员好让指纹看得见进度。
+球位/几率这种条件一定要连**短路顺序**一起照抄——「不抽」和「抽了但没走那条路」是两种不同的状态。
+
+#### 阶段缺口要显式记下来
+
+不是每个阶段都有登记入口。心脏的 `RegeneratePowerA4h` 走 `AbstractModel.AfterSideTurnEnd`，
+而求解器只镜像 `AfterSideTurnEndLate`（§2.10），**没有** `AfterSideTurnEnd` 这个阶段，
+因此无法建模。这种情况不要登记一个「近似」实现，把它写进适配模块的已知缺口常量并打进日志，
+让缺席是可见的。见第 6 节。
+
+#### 已复核但无玩法影响的重写：显式登记为忽略，不要留在风险里
+
+未登记的重写会记一条 `MethodNotMirrored` 风险。**风险不只是显示。**只要那条 gap 的方法名里带
+«Death»，`CombatBeamSolver` 就不承认这一局已经打赢——`uncertainVictory` 会把搜索边界改写成
+`UnsupportedEffect`，而 `CombatBeamSolver.Terminal` 又要求 `BoundaryReason != UnsupportedEffect`
+才肯记 `CombatEndedTurn`；`CombatEndedTurn` 是 `null`，界面就永远显示「预计战损 未知」，可信度也一并
+掉到「低」。一条本来无害的钩子，代价是整场战斗给不出战损。
+
+所以逐行反编译确认「没有命令、数值、RNG、状态读写」的重写，应当按精确类型登记为忽略：
+
+```csharp
+AfterDeathMirrors.RegisterIgnored(modelType);   // 语义同原生那批 RegisterIgnored<T>()
+```
+
+这与原生的 `RegisterIgnored<KinPriest>()` 是同一种结论：**人工复核**，不是运行期可判定的性质。
+自检只能核对签名与成员是否还在，挡行为变化的是清单里的版本下限。心脏适配的
+`Act4Heart.CorruptHeart.AfterDeath`（只换背景音乐）就是这么处理的，链式后果与实证见
+[AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6。
+
+#### `DamageCalc.Target != null` 不等于「动态伤害」
+
+预测器按「`DamageCalc` 是否绑定了实例」判断攻击是否动态，原版那批已复核的行动写死在
+`IntentForecaster.IsKnownStableAttack` 里。这个判据对下面两个构造函数是**误报**：
+
+```csharp
+public MultiAttackIntent(int damage, int repeat) { DamageCalc = () => damage; _repeat = repeat; }
+public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
+```
+
+它们把**构造实参**捕进闭包，`Target` 是编译器生成的显示类而不是怪物实例，段数也是普通只读字段。
+第三方类型不在原版白名单里，只能靠 `RegisterStableAttack` 声明，否则每一回合都多报一条
+`approximation=…:动态伤害`。声明前必须反编译核对行动确实用的是「常量构造」这一形状。
+
+**声明是可以在运行期被证伪的，所以它会被现场核对。** 适配层在初始化时既拿不到怪物实例、也拿不到
+那些 `private int X => AscensionHelper…` 属性的值——数字不是 `const`，抄一份进适配层只会变成
+第二份真相。于是 `IntentForecaster` 命中第三方登记时还会调
+`ThirdPartyAdapterRegistry.IsStableAttackShape`（判据实现在 `src/Prediction/StableAttackShape.cs`）：
+
+| 意图的伤害闭包 | 判定 |
+|---|---|
+| `SingleAttackIntent(int)` / `MultiAttackIntent(int, int)` 捕下的构造实参——闭包显示类声明在**意图类型自己内部** | 成立 |
+| 没有计算器，或委托 `Target` 为空（静态方法组、无捕获的静态缓存 lambda 之外的 `Target == null` 情形） | 成立（与既有 `DamageCalc?.Target != null` 判据一致，本来就不进近似清单） |
+| 调用方传进来的委托：捕获 `this` 的 lambda（`Target` 就是怪物）、捕获调用方局部变量的闭包、调用方的无捕获 lambda | **不成立** |
+| 派生意图在自己的构造函数里再造一层闭包（往昔之章的 `DynamicSingleAttackIntent` / `DynamicMultiAttackIntent`） | **不成立** |
+
+不成立时**不认这条声明**，近似清单照旧记一条「动态伤害」，不会让界面声称算准了。
+核对程序：`tools/StableAttackShapeChecks`（`ok=6`，含原版两条常量构造重载、调用方闭包与两种
+派生意图形状）。
+
+这条判据**只管伤害**。段数走 `Repeats`，而 `MultiAttackIntent` 还有一条
+`(int damage, Func<int> repeatCalc)` 重载（伤害是常量、段数不是），它不在判据覆盖范围内——
+多段行动仍须按反编译确认用的是 `(int, int)` 那条重载。
+
 ## 3. 登记的纪律
 
 这几条不是风格建议，是踩过的坑。
@@ -581,12 +710,12 @@ CardRemovalValueMirrors.Register<YourDefend>(-10d);
 | `CombatBeamSolver.CaptureEnergyRefundWindow` / `StrategicEffectContext.RecurringEnergyGain` | 原版环绕轨道按花费余数、自动化按剩余抽牌数估计未来返能，包含自然抽牌；与可消费能量缺口共用上限。第三方仍通过 §2.2 登记，详见[估值上下文](third-party-strategic-effects.md) | 原版特化；第三方估值已有入口 |
 | `RelicCounterCatalog` / `SimulatedCombatState.ReadRelicCounter` | 战斗末卡数仅覆盖已核对的十种原版计数；第三方显示计数只列出“尚未适配”，不会被自动当作跨战斗目标。见[计数策略说明](relic-counters.md) | 精确原版适配 |
 | `SearchPolicySnapshot.IsAct3BossEncounter` / `CombatBeamSolver.CaptureAct3BossInteractionPotential` | 首领范围只含第三幕实验体、永世沙漏、女王；联动上下文只适配原版 Pagestorm、DanseMacabre、Demesne；StrategicEffectModel 对 PrepTimePower 按未来攻击与回合视野估计重复精力收益。这些不是通用第三方触发次数分析。第三方 Power 仍使用 §2.2 登记 | 原版特化；第三方估值已有入口 |
-| `PredictionModHookSubscriberCapture.KnownPreRootSubscriberTypeNames` | 私有静态白名单，没有公开登记入口 | 待做 |
+| `PredictionModHookSubscriberCapture.KnownPreRootSubscriberTypeNames` | 内置白名单本身仍按类型写死；第三方走 `ThirdPartyAdapterRegistry.AllowCombatSubscriber`（§1.1、§2.13）放行，本行只是记下原版那个集合仍然封闭 | 第三方已有入口 |
 | `PredictionModPatchAudit.ValidateLoadedMods` | 明确拒绝 `WheelchairSpire`，没有外部放行入口 | 项目不兼容策略 |
 | `NativeModelCloneConcurrency` | 预测克隆只放行已核对原版阶段、原版变量及 BaseLib/Ritsu 稀疏元数据复制补丁组合的普通原版卡牌；附魔/灾厄、第三方模型/变量和未知补丁保留原锁。Power 只放行已物化原版变量、继承默认克隆及 InitInternalData 的原版类型，同时核对基阶段与变量 getter 补丁；自定义初始化保持原锁。每个线程最外层模拟隔离域重新核对，不支持求解中安装补丁；原版 MutableClone 保护不变。没有新增外部注册入口 | 精确框架适配 |
 | `RitsuEmptyCapabilityFastPathPatches` | 模拟隔离域的空 capability 集可直接保留原卡牌标签序列；不枚举/复制标签，不缓存分支值。非空贡献者与精确类型默认来源继续框架入口；晚注册刷新来源代次，已物化的空集合仍按框架语义处理。live 不旁路，无新增登记入口 | 精确框架适配 |
 | `DynamicVarCloneMetadataPatches` | 模拟克隆只优化已核对为空默认值的 BaseLib 提示/升级字段与 Ritsu 提示工厂；非空值照常复制，live 调用保持原框架行为。其他附加字段继续原有克隆逻辑，不属于此优化入口 | 精确框架适配 |
-| `CorePowerSupport.TriggerPlayerRegularSideTurnEndEffects`、`FlushPlayerHandAtTurnEnd`、`TurnStartPowerSupport.TriggerAfterPlayerTurnStart`、`SimulatedCombatState.TriggerRelicsAfterPlayerTurnStart` | 常规回合末和部分回合开始效果尚无通用登记；晚期 `AfterSideTurnEndLate` 已开放，见 §2.10 | 部分开放 |
+| `CorePowerSupport.TriggerPlayerRegularSideTurnEndEffects`、`FlushPlayerHandAtTurnEnd`、`TurnStartPowerSupport.TriggerAfterPlayerTurnStart`、`SimulatedCombatState.TriggerRelicsAfterPlayerTurnStart` | 常规回合末和部分回合开始效果尚无通用登记；晚期 `AfterSideTurnEndLate` 已开放，见 §2.10。**`AbstractModel.AfterSideTurnEnd`（非 Late）本身没有分发点**，重写它的第三方类型无法建模（心脏适配的 `RegeneratePowerA4h` 就是这种情况，见 §2.13） | 部分开放 |
 | `SimulatedCombatState.TryPrepareExtraPlayerTurn` / `TryPrepareLiveExtraPlayerTurn` / `ConsumeExtraTurnSources` | 额外回合的来源硬编码，只认龙涎香和帕尔之眼 | 待做 |
 | `CombatPredictionSimulator.OnPlayWrapper` | 出牌后补抽没有挂载点 | 待做 |
 | `CardChoiceSupport.RemovalPriority` 的排序口径 | 移除类选择按**单卡**估值排，不看牌库其余部分；弃牌那一侧已经是「源牌堆平均值减本牌估值」的相对口径，消耗与转变没有。表现为求解器不会为了压出无限而主动烧牌。起手牌那一层已由 §2.7 打开，相对口径这一层仍然封闭 | 待做 |
@@ -603,5 +732,6 @@ CardRemovalValueMirrors.Register<YourDefend>(-10d);
 - [架构与职责地图](ARCHITECTURE.md)：源码入口和所有权，`§4.2 Mirror` 是镜像层的位置。
 - [战斗钩子覆盖目录](COMBAT_HOOK_COVERAGE.md)：求解器分发哪些 hook。
 - [第三方 Power 的战略估值登记](third-party-strategic-effects.md)。
+- [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md)：两个已落地的适配 Mod 的覆盖范围与已知缺口。
 - [无头测试](HEADLESS_TESTING.md)：夹具怎么跑。
 - [检查点回放](CHECKPOINT_REPLAY.md)：问题包怎么导入。

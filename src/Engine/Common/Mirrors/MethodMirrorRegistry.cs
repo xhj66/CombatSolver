@@ -109,6 +109,21 @@ internal sealed class MethodMirrorRegistry<TBase, TContext>(MirrorMethodSpec met
     }
 
     /// <summary>
+    /// Registers an override that a reviewer confirmed has no prediction-relevant behavior, addressed by runtime type.
+    /// </summary>
+    /// <remarks>
+    /// External assemblies cannot supply a generic type argument, so a third-party adapter has to address its models by
+    /// runtime <see cref="Type"/> (see docs/THIRD_PARTY_ADAPTERS.md §2.13). Registrations must still finish before the
+    /// first query because resolved type lookups are cached.
+    /// </remarks>
+    public void RegisterIgnored(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ValidateOverride(type);
+        _registrations.Add(type, new LookupResult(MirrorDispatchKind.Ignored, null));
+    }
+
+    /// <summary>
     /// Registers the single type-level fallback used to infer unregistered, gameplay-relevant overrides.
     /// </summary>
     public void RegisterInferrer(MethodMirrorInferrer<TBase, TContext> inferrer)

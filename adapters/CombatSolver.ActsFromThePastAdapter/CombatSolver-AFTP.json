@@ -1,0 +1,15 @@
+{
+  "id": "CombatSolver-AFTP",
+  "name": "求解器·往昔之章适配",
+  "author": "Torch",
+  "description": "让战斗路线求解器看懂 Acts from the Past 的第一幕怪物。装上它之后，求解器能预测 Exordium 怪物的行动分支与行动效果。需要先启用战斗路线求解器本身。",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "affects_gameplay": false,
+  "min_game_version": "0.111.0",
+  "dependencies": [
+    { "id": "CombatSolver", "min_version": "0.43.2" },
+    { "id": "ActsFromThePast", "min_version": "1.0.5" }
+  ]
+}

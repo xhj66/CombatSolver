@@ -1,0 +1,215 @@
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Random;
+
+namespace CombatSolver.ActsFromThePastAdapter;
+
+/// <summary>
+/// 往昔之章第一幕怪物的行动分支解析（<c>ActsFromThePast.ConditionalBranchState</c>）。
+/// </summary>
+/// <remarks>
+/// 每条实现逐行对应 AFTP 源码里的 <c>SelectNextMove</c>／<c>SelectAfterCharge</c>，
+/// 包括注释里的概率与短路条件。与源码的三点差别：
+///
+/// <list type="number">
+/// <item>行动历史取自求解器的**预测分支** <c>stateLog</c>，不是实机状态机的
+/// <c>StateLog</c>——实机日志对搜索里的每个分支都是同一份陈旧值。分支状态自身不进日志
+/// （<c>ShouldAppearInLogs=false</c>），且状态机构造时会把初始行动预置进去，
+/// 所以第 N 项就是第 N 次将要／已经执行的行动，和源码里 <c>LastMove</c> 的口径一致。</item>
+/// <item>怪物标量状态走模拟状态（<c>GetMonsterInt</c>），随分支 Fork，不读实机私有字段。</item>
+/// <item><c>rng</c> 由求解器传入，就是 AFTP 用的那条 <c>MonsterAi</c> 流；下面的实现逐条复制
+/// 原实现的 <c>NextInt</c>／<c>NextFloat</c> 调用顺序与短路条件——不但同一条件下抽同样次数，
+/// 「某条分支不抽 RNG」这一点也必须保持，否则后续回合的抽样会整体错位。</item>
+/// </list>
+///
+/// **只登记能完整建模的分支。** 分支依赖了还没镜像的状态时（<c>SplitTriggered</c>、
+/// <c>_isOpen</c> / <c>_pendingModeShift</c>、<c>_orbActiveCount</c>、<c>_usedEntangle</c>、
+/// <c>IsAwake</c>）一律不登记：求解器会明确报「这个分支还没有预测实现」并停在门禁上，
+/// 比给出一个看似可信的错路线好（docs/THIRD_PARTY_ADAPTERS.md §3.2）。
+/// **例外**：GremlinShield 的分支只看队友数（本身可建模），卡住它的是同一只怪物的
+/// <c>PROTECT</c> 行动要用**它自己那条 <c>MonsterModel.Rng</c>** 抽格挡目标，求解器不模拟这条流——
+/// 所以整个怪物仍然不登记，缺口记在 docs/AFTP_ACT4HEART_STATUS.md §2.2。
+/// </remarks>
+internal static class ExordiumBranchResolvers
+{
+    /// <summary>初始化自检：确认要登记的怪物类型在对方程序集里存在。</summary>
+    public static void Verify()
+    {
+        foreach (string typeName in RegisteredMonsterTypes)
+            AfpReflection.RequireMonsterType(typeName);
+    }
+
+    public static void RegisterAll()
+    {
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("AcidSlimeMedium", "MOVE_BRANCH", AcidSlimeMedium);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SpikeSlimeMedium", "MOVE_BRANCH", SpikeSlimeMedium);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("FungiBeast", "MOVE_BRANCH", FungiBeast);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("JawWorm", "MOVE_BRANCH", JawWorm);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinNob", "MOVE_BRANCH", GremlinNob);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlaverBlue", "MOVE_BRANCH", SlaverBlue);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinWizard", "AFTER_CHARGE", GremlinWizard);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Looter", "MUG_BRANCH", Looter);
+    }
+
+    internal static readonly string[] RegisteredMonsterTypes =
+    [
+        "AcidSlimeMedium",
+        "SpikeSlimeMedium",
+        "FungiBeast",
+        "JawWorm",
+        "GremlinNob",
+        "SlaverBlue",
+        "GremlinWizard",
+        "Looter",
+    ];
+
+    // === 逐条对照 AFTP 源码 ===
+
+    /// <summary>AcidSlimeMedium.SelectNextMove：40% Corrosive Spit／40% Tackle／20% Lick。</summary>
+    private static string AcidSlimeMedium(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        int num = rng.NextInt(100);
+        if (num < 40)
+        {
+            if (LastTwoMoves(log, "CORROSIVE_SPIT"))
+                return rng.NextFloat() < 0.5f ? "TACKLE" : "LICK";
+            return "CORROSIVE_SPIT";
+        }
+        if (num < 80)
+        {
+            if (LastTwoMoves(log, "TACKLE"))
+                return rng.NextFloat() < 0.5f ? "CORROSIVE_SPIT" : "LICK";
+            return "TACKLE";
+        }
+        if (LastMove(log, "LICK"))
+            return rng.NextFloat() < 0.4f ? "CORROSIVE_SPIT" : "TACKLE";
+        return "LICK";
+    }
+
+    /// <summary>SpikeSlimeMedium.SelectNextMove：30% Flame Tackle／70% Lick。</summary>
+    private static string SpikeSlimeMedium(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        int num = rng.NextInt(100);
+        if (num < 30)
+            return LastTwoMoves(log, "FLAME_TACKLE") ? "LICK" : "FLAME_TACKLE";
+        return LastMove(log, "LICK") ? "FLAME_TACKLE" : "LICK";
+    }
+
+    /// <summary>FungiBeast.SelectNextMove：60% Bite／40% Grow。</summary>
+    private static string FungiBeast(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        int num = rng.NextInt(100);
+        if (num < 60)
+            return LastTwoMoves(log, "BITE") ? "GROW" : "BITE";
+        return LastMove(log, "GROW") ? "BITE" : "GROW";
+    }
+
+    /// <summary>JawWorm.SelectNextMove：25% Chomp／30% Thrash／45% Bellow。</summary>
+    private static string JawWorm(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        int num = rng.NextInt(100);
+        if (num < 25)
+        {
+            if (LastMove(log, "CHOMP"))
+                return rng.NextFloat() < 0.5625f ? "BELLOW" : "THRASH";
+            return "CHOMP";
+        }
+        if (num < 55)
+        {
+            if (LastTwoMoves(log, "THRASH"))
+                return rng.NextFloat() < 0.357f ? "CHOMP" : "BELLOW";
+            return "THRASH";
+        }
+        if (LastMove(log, "BELLOW"))
+            return rng.NextFloat() < 0.416f ? "CHOMP" : "THRASH";
+        return "BELLOW";
+    }
+
+    /// <summary>
+    /// GremlinNob.SelectNextMove：A18 行为——前两回合没打过 Skull Bash 就打它，否则 Rush
+    /// （不连续两次）。这条分支不抽 RNG。
+    /// </summary>
+    private static string GremlinNob(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        if (!LastMove(log, "SKULL_BASH") && !LastMoveBefore(log, "SKULL_BASH"))
+            return "SKULL_BASH";
+        return LastTwoMoves(log, "RUSH") ? "SKULL_BASH" : "RUSH";
+    }
+
+    /// <summary>SlaverBlue.SelectNextMove：60% Stab（不连续两次）／否则 Rake（不连续两次）。</summary>
+    private static string SlaverBlue(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        int num = rng.NextInt(100);
+        if (num >= 40 && !LastTwoMoves(log, "STAB"))
+            return "STAB";
+        if (!LastMove(log, "RAKE"))
+            return "RAKE";
+        return "STAB";
+    }
+
+    /// <summary>GremlinWizard.SelectAfterCharge：充能满 3 就放炮，否则继续充能。</summary>
+    private static string GremlinWizard(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+        => combat.GetMonsterInt(monster.Creature, "_currentCharge") >= ExordiumMoveEffects.GremlinWizardChargeLimit
+            ? "ULTIMATE_BLAST"
+            : "CHARGING";
+
+    /// <summary>
+    /// Looter.SelectAfterMug：Mug 出手不满两次就再来一次，够了就交给随机分支
+    /// <c>AFTER_SECOND_MUG</c>（50% SMOKE_BOMB／50% LUNGE，由求解器通用的随机分支逻辑按冻结权重抽）。
+    /// 这条分支不抽 RNG。
+    /// </summary>
+    private static string Looter(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+        => combat.GetMonsterInt(monster.Creature, "_mugCount") < 2 ? "MUG" : "AFTER_SECOND_MUG";
+
+    // === AFTP 各敌人自带的同名辅助函数 ===
+
+    private static bool LastMove(IReadOnlyList<string> log, string moveId)
+        => log.Count > 0 && string.Equals(log[^1], moveId, StringComparison.Ordinal);
+
+    private static bool LastMoveBefore(IReadOnlyList<string> log, string moveId)
+        => log.Count > 1 && string.Equals(log[^2], moveId, StringComparison.Ordinal);
+
+    private static bool LastTwoMoves(IReadOnlyList<string> log, string moveId)
+        => log.Count > 1
+            && string.Equals(log[^1], moveId, StringComparison.Ordinal)
+            && string.Equals(log[^2], moveId, StringComparison.Ordinal);
+}

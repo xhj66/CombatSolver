@@ -1,0 +1,59 @@
+<Project>
+
+  <!--
+    求解器适配 Mod 的共享构建配置。
+
+    适配 Mod 是独立程序集：它引用 CombatSolver.dll，用 publicizer 打开求解器的内部
+    登记入口（ThirdPartyAdapterRegistry 与其余镜像注册表），在 Mod 初始化时把自己的
+    内容登记进去。构建产物是一个完整可安装的 Mod 目录：<id>.dll + <id>.json。
+
+    引用路径与 CombatSolver.csproj 保持同一套解析规则；请先构建并安装 CombatSolver，
+    适配 Mod 才能编译（也才能运行）。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>true</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+
+    <SteamRoot Condition="'$(SteamRoot)' == '' and '$(OS)' == 'Windows_NT' and Exists('D:/Steam')">D:/Steam</SteamRoot>
+    <SteamRoot Condition="'$(SteamRoot)' == '' and '$(OS)' == 'Windows_NT'">$(MSBuildProgramFiles32)/Steam</SteamRoot>
+    <SteamRoot Condition="'$(SteamRoot)' == ''">$(HOME)/.local/share/Steam</SteamRoot>
+    <Sts2Dir Condition="'$(Sts2Dir)' == ''">$(SteamRoot)/steamapps/common/Slay the Spire 2</Sts2Dir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == '' and '$(OS)' == 'Windows_NT'">$(Sts2Dir)/data_sts2_windows_x86_64</Sts2DataDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">$(Sts2Dir)/data_sts2_linuxbsd_x86_64</Sts2DataDir>
+
+    <!-- 求解器本体的安装位置（CombatSolver.csproj 的 ModOutputDir）。 -->
+    <CombatSolverModDir Condition="'$(CombatSolverModDir)' == ''">$(Sts2Dir)/mods/CombatSolver</CombatSolverModDir>
+    <CombatSolverAssembly Condition="'$(CombatSolverAssembly)' == ''">$(CombatSolverModDir)/CombatSolver.dll</CombatSolverAssembly>
+
+    <ModOutputDir Condition="'$(ModOutputDir)' == ''">$(Sts2Dir)/mods/$(ModId)</ModOutputDir>
+    <CopyModOnBuild Condition="'$(CopyModOnBuild)' == ''">true</CopyModOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 求解器的登记入口是 internal；第三方适配程序集照既有做法走 publicizer。 -->
+    <PackageReference Include="Krafs.Publicizer" Version="2.3.0" PrivateAssets="all" />
+    <Publicize Include="CombatSolver" IncludeVirtualMembers="false" IncludeCompilerGeneratedMembers="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="sts2" HintPath="$(Sts2DataDir)/sts2.dll" Private="false" />
+    <Reference Include="GodotSharp" HintPath="$(Sts2DataDir)/GodotSharp.dll" Private="false" />
+    <Reference Include="CombatSolver" HintPath="$(CombatSolverAssembly)" Private="false" />
+    <!-- 适配层要复核第三方补丁的组合（HarmonyPatchType / Priority / Patches），需要 Harmony。 -->
+    <Reference Include="0Harmony" HintPath="$(Sts2DataDir)/0Harmony.dll" Private="false" />
+  </ItemGroup>
+
+  <Target Name="ValidateAdapterPrerequisites" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(Sts2DataDir)/sts2.dll')"
+           Text="找不到 $(Sts2DataDir)/sts2.dll。请检查 SteamRoot 或 Sts2DataDir。" />
+    <Error Condition="!Exists('$(CombatSolverAssembly)')"
+           Text="找不到 $(CombatSolverAssembly)。请先构建并安装 CombatSolver（CopyModOnBuild=true 会写进 mods/CombatSolver）。" />
+  </Target>
+
+</Project>

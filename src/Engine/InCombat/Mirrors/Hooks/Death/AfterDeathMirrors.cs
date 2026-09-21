@@ -32,6 +32,17 @@ internal static class AfterDeathMirrors
         Registry.Invoke(listener, context);
     }
 
+    /// <summary>
+    /// Registers a third-party override of this hook that a reviewer confirmed has no prediction-relevant effect.
+    /// </summary>
+    /// <remarks>
+    /// The adapted Mod is not a compile-time reference, so third-party models are addressed by runtime type
+    /// (see docs/THIRD_PARTY_ADAPTERS.md §2.13). Call it during Mod initialization, before any root capture.
+    /// Without this entry an unreviewed third-party override is recorded as <c>MethodNotMirrored</c> risk, which
+    /// suppresses victory acknowledgement for any method whose name contains "Death".
+    /// </remarks>
+    public static void RegisterIgnored(Type modelType) => Registry.RegisterIgnored(modelType);
+
     private static Registry CreateRegistry()
     {
         var registry = new Registry(AfterDeath);

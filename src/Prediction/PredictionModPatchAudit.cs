@@ -50,7 +50,7 @@ internal static class PredictionModPatchAudit
                 AuditCardOnPlay(type, adapted, out ForeignPatch? firstForeign);
             if (selected is null && firstForeign is { } unsupported)
                 throw new IncompatibleGameplayModException(unsupported.ModId, unsupported.ModName,
-                    unsupported.Description, "combat");
+                    unsupported.Description, "combat", DescribeUnloadedAdapter(unsupported.ModId));
             selections?.Add(type, selected);
         }
         if (selections is null)
@@ -66,7 +66,8 @@ internal static class PredictionModPatchAudit
                     AuditCardOnPlay(type, adapted: true, out ForeignPatch? firstForeign);
                 if (selected is null && firstForeign is { } unsupported)
                     deferredFailures.Add(type, $"{unsupported.ModName} ({unsupported.ModId}) patches the OnPlay of "
-                        + $"{type.FullName} without a matching adapter: {unsupported.Description}.");
+                        + $"{type.FullName} without a matching adapter: {unsupported.Description}."
+                        + (DescribeUnloadedAdapter(unsupported.ModId)?.DescribeLogSuffix() ?? string.Empty));
                 else
                     selections.Add(type, selected);
             }
@@ -119,6 +120,51 @@ internal static class PredictionModPatchAudit
                 $"{incompatibleId} gameplay changes",
                 "combat");
         }
+    }
+
+    /// <summary>
+    /// 找出「同时依赖求解器与 <paramref name="foreignModId"/>、但本次没有加载」的求解器适配 Mod。
+    /// </summary>
+    /// <remarks>
+    /// 适配 Mod 是独立 Mod，它登记的那些合成语义只在自己加载时才存在。被停用、被重复来源顶掉或
+    /// 加载失败时，被打补丁的镜像 OnPlay 会照常被拒——可日志与界面只会说「不兼容的第三方 Mod」，
+    /// 看不出真正的原因是**适配没加载**，玩家于是去卸载那个无辜的玩法 Mod。
+    /// 这里按 Mod 清单声明的依赖关系把缺的那一环补上，不硬编码任何 Mod 名：之所以要求它**同时**
+    /// 依赖求解器（<see cref="Entry.ModId"/>）与被拒 Mod，是为了不把「碰巧依赖同一个玩法 Mod 的
+    /// 其它停用 Mod」误报成适配；代价是适配若没声明对求解器的依赖就得不到提示（只是少一条提示，
+    /// 不影响拒绝本身）。
+    /// 数据源是 <see cref="ModManager.Mods"/>，它含被跳过的 Mod（状态为
+    /// <see cref="ModLoadState.Disabled"/> 等），而 <see cref="ModManager.GetLoadedMods"/> 只有已加载的。
+    /// </remarks>
+    private static UnloadedAdapterHint? DescribeUnloadedAdapter(string foreignModId)
+    {
+        foreach (Mod mod in ModManager.Mods)
+        {
+            if (mod.state == ModLoadState.Loaded)
+                continue;
+            ModManifest? manifest = mod.manifest;
+            if (manifest?.id is not { Length: > 0 } adapterId
+                || string.Equals(adapterId, foreignModId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            // 适配 Mod 的判据：**同时**依赖求解器本身与被拒的那个 Mod。只依赖被拒 Mod 的停用
+            // Mod（例如某个玩法扩展）不是适配，不能拿来当解释。
+            if (manifest.dependencies is not { } dependencies)
+                continue;
+            bool dependsOnSolver = false;
+            bool dependsOnForeignMod = false;
+            foreach (ModDependency dependency in dependencies)
+            {
+                dependsOnSolver |= string.Equals(dependency.id, Entry.ModId, StringComparison.OrdinalIgnoreCase);
+                dependsOnForeignMod |= string.Equals(
+                    dependency.id, foreignModId, StringComparison.OrdinalIgnoreCase);
+            }
+            if (!dependsOnSolver || !dependsOnForeignMod)
+                continue;
+            return new UnloadedAdapterHint(manifest.name ?? string.Empty, adapterId, mod.state);
+        }
+        return null;
     }
 
     private static ForeignPatch? TryDescribeForeignPatch(Patch patch, MethodInfo target)

@@ -66,12 +66,28 @@ internal static class PowerHiddenStateMirrors
     public static void Register<TPower>(string name, Func<CombatPredictionSimulator, TPower, long> read)
         where TPower : PowerModel
     {
+        ArgumentNullException.ThrowIfNull(read);
+        Register(typeof(TPower), name, (simulator, power) => read(simulator, (TPower)power));
+    }
+
+    /// <summary>
+    /// 按运行时 <see cref="Type"/> 登记隐藏状态。第三方适配 Mod 只拿得到类型对象，没有泛型形参，
+    /// 因此除了泛型重载之外还需要这一个；两条路共用同一张表与同一套重复登记检查。
+    /// </summary>
+    public static void Register(
+        Type powerType,
+        string name,
+        Func<CombatPredictionSimulator, PowerModel, long> read)
+    {
+        ArgumentNullException.ThrowIfNull(powerType);
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(read);
-        Slot slot = new(name, (simulator, power) => read(simulator, (TPower)power));
-        if (!Registry.TryGetValue(typeof(TPower), out Slot[]? existing))
+        if (powerType.IsAbstract || !typeof(PowerModel).IsAssignableFrom(powerType))
+            throw new ArgumentException($"{powerType.FullName} 不是具体的 PowerModel 类型。", nameof(powerType));
+        Slot slot = new(name, read);
+        if (!Registry.TryGetValue(powerType, out Slot[]? existing))
         {
-            Registry[typeof(TPower)] = [slot];
+            Registry[powerType] = [slot];
             return;
         }
         foreach (Slot other in existing)
@@ -80,14 +96,14 @@ internal static class PowerHiddenStateMirrors
             if (string.Equals(other.Name, name, StringComparison.Ordinal))
             {
                 throw new ArgumentException(
-                    $"{typeof(TPower).FullName} 的隐藏状态 {name} 已经登记过。",
+                    $"{powerType.FullName} 的隐藏状态 {name} 已经登记过。",
                     nameof(name));
             }
         }
         Slot[] merged = [.. existing, slot];
         // 排序放在登记时做一次，下游按数组顺序走，不在热路径上排序。
         Array.Sort(merged, static (left, right) => string.CompareOrdinal(left.Name, right.Name));
-        Registry[typeof(TPower)] = merged;
+        Registry[powerType] = merged;
     }
 
     /// <summary>
@@ -105,9 +121,23 @@ internal static class PowerHiddenStateMirrors
         where TPower : PowerModel
     {
         ArgumentNullException.ThrowIfNull(capture);
-        RootCaptures.Add(
+        RegisterRootCapture(
             typeof(TPower),
             (simulator, clone, original) => capture(simulator, (TPower)clone, (TPower)original));
+    }
+
+    /// <summary>
+    /// 按运行时 <see cref="Type"/> 登记根捕获，供第三方适配 Mod 使用；与泛型重载共用同一张表。
+    /// </summary>
+    public static void RegisterRootCapture(
+        Type powerType,
+        Action<CombatPredictionSimulator, PowerModel, PowerModel> capture)
+    {
+        ArgumentNullException.ThrowIfNull(powerType);
+        ArgumentNullException.ThrowIfNull(capture);
+        if (powerType.IsAbstract || !typeof(PowerModel).IsAssignableFrom(powerType))
+            throw new ArgumentException($"{powerType.FullName} 不是具体的 PowerModel 类型。", nameof(powerType));
+        RootCaptures.Add(powerType, capture);
     }
 
     /// <summary>取出这个 Power 的登记槽；没登记过时返回空。</summary>

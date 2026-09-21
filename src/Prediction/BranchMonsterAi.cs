@@ -60,7 +60,8 @@ internal sealed record BranchMonsterStaticSnapshot(
                 foreach (RandomBranchState.StateWeight weight in random.States)
                     weights.Add((random.Id, weight.stateId), weight.GetWeight());
             }
-            else if (state is ConditionalBranchState conditional)
+            else if (state is ConditionalBranchState conditional
+                && !ThirdPartyMonsterBranches.IsForeignBranchState(conditional))
             {
                 try
                 {
@@ -194,6 +195,13 @@ internal static class BranchMonsterAi
                         combat,
                         simulator)];
                     break;
+                case var foreign when ThirdPartyMonsterBranches.IsForeignBranchState(foreign):
+                    nextState = machine.States[ThirdPartyMonsterBranches.Resolve(
+                        foreign,
+                        source,
+                        combat,
+                        simulator)];
+                    break;
                 default:
                     throw new PredictionUnsupportedException(
                         $"Unsupported monster state {nextState.GetType().FullName} for {source.Monster.Id.Entry}.");
@@ -239,6 +247,13 @@ internal static class BranchMonsterAi
                         combat,
                         simulator)];
                     break;
+                case var foreign when ThirdPartyMonsterBranches.IsForeignBranchState(foreign):
+                    nextState = source.Machine.States[ThirdPartyMonsterBranches.Resolve(
+                        foreign,
+                        source,
+                        combat,
+                        simulator)];
+                    break;
                 default:
                     throw new PredictionUnsupportedException(
                         $"Unsupported initial monster state {nextState.GetType().FullName} " +
@@ -264,6 +279,19 @@ internal static class BranchMonsterAi
     {
         Creature owner = source.Monster.Creature;
         string monster = owner.Monster?.GetType().Name ?? string.Empty;
+        // 第三方怪物的分支条件读的是它自己程序集里的私有字段（心脏的 state、蛇眼君的开合……），
+        // 这类状态在本体里既没有镜像也没有播种，冻结的根选择只反映捕获那一刻，之后每回合都会错。
+        // 登记方按模拟状态重算的结论优先于原版按名字写死的分支与原版冻结选择。
+        if (ThirdPartyAdapterRegistry.TryResolveBranch(
+                source.Monster,
+                branch.Id,
+                source.StateLog,
+                simulator.Rng.MonsterAi,
+                combat,
+                out string thirdPartyResolved))
+        {
+            return thirdPartyResolved;
+        }
         if (monster == "FrogKnight" && branch.Id == "HALF_HEALTH")
         {
             bool charged = combat.GetMonsterBool(owner, "_hasBeetleCharged");

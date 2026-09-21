@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    「稳定攻击」形状判据（src/Prediction/StableAttackShape.cs）的独立核对程序。
+
+    只编那一份源码 + sts2.dll，不启动 Godot：判据本身是编译期形状问题，
+    用真实的意图类型（原版两条常量构造重载、调用方闭包、派生意图自带闭包）各验一遍。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SteamRoot Condition="'$(SteamRoot)' == '' and '$(OS)' == 'Windows_NT' and Exists('D:/Steam')">D:/Steam</SteamRoot>
+    <SteamRoot Condition="'$(SteamRoot)' == '' and '$(OS)' == 'Windows_NT'">$(MSBuildProgramFiles32)/Steam</SteamRoot>
+    <SteamRoot Condition="'$(SteamRoot)' == ''">$(HOME)/.local/share/Steam</SteamRoot>
+    <Sts2Dir Condition="'$(Sts2Dir)' == ''">$(SteamRoot)/steamapps/common/Slay the Spire 2</Sts2Dir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == '' and '$(OS)' == 'Windows_NT'">$(Sts2Dir)/data_sts2_windows_x86_64</Sts2DataDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">$(Sts2Dir)/data_sts2_linuxbsd_x86_64</Sts2DataDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Prediction/StableAttackShape.cs" Link="StableAttackShape.cs" />
+    <!-- 意图类型本身要在运行期真的加载，所以 sts2 与它的 Godot 依赖必须落到输出目录。 -->
+    <Reference Include="sts2" HintPath="$(Sts2DataDir)/sts2.dll" />
+    <Reference Include="GodotSharp" HintPath="$(Sts2DataDir)/GodotSharp.dll" />
+  </ItemGroup>
+  <Target Name="ValidateSts2DataDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(Sts2DataDir)/sts2.dll')"
+           Text="找不到 $(Sts2DataDir)/sts2.dll。请检查 SteamRoot 或 Sts2DataDir。" />
+  </Target>
+</Project>

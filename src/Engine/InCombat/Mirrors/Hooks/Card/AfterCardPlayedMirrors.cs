@@ -35,15 +35,48 @@ internal static class AfterCardPlayedMirrors
 
     private static readonly Registry Registry = CreateRegistry();
     private static readonly Registry LateRegistry = CreateLateRegistry();
+    private static readonly object RegistrationLock = new();
+    private static bool _sealed;
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.AfterCardPlayed"/> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 外部程序集只拿得到 <see cref="Type"/>，所以这里收 <c>Action&lt;AbstractModel, …&gt;</c> 而不是泛型形参；
+    /// 登记责任与其余镜像一致：必须在任何根捕获或首次分发之前完成，之后明确拒绝
+    /// （见 docs/THIRD_PARTY_ADAPTERS.md §3.1）。类型没有重写该虚方法时底层注册表会抛异常。
+    /// </remarks>
+    public static void Register(Type modelType, Action<AbstractModel, AfterCardPlayedMirrorContext> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("卡牌出牌镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_sealed)
+                throw new InvalidOperationException("AfterCardPlayed 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.Register(Registry, modelType, handler);
+        }
+    }
+
+    private static void Seal()
+    {
+        if (Volatile.Read(ref _sealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _sealed, true);
+    }
 
     public static void Invoke(AbstractModel listener, AfterCardPlayedMirrorContext context)
     {
+        Seal();
         using var dispatch = context.Simulator.BeginExecutionDispatch();
         Registry.Invoke(listener, context);
     }
 
     public static void InvokeLate(AbstractModel listener, AfterCardPlayedMirrorContext context)
     {
+        Seal();
         using var dispatch = context.Simulator.BeginExecutionDispatch();
         LateRegistry.Invoke(listener, context);
     }

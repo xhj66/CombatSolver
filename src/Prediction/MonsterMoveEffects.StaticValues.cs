@@ -46,8 +46,14 @@ internal static partial class MonsterMoveEffects
 
     internal static IReadOnlyDictionary<string, int> CaptureStaticIntValues(MonsterModel monster)
     {
-        if (!StaticIntMembers.TryGetValue(monster.GetType().Name, out string[]? members))
-            return new Dictionary<string, int>(0, StringComparer.Ordinal);
+        string typeName = monster.GetType().Name;
+        if (!StaticIntMembers.TryGetValue(typeName, out string[]? members))
+        {
+            // 第三方适配 Mod 自行声明它需要冻结的静态数值成员。
+            if (!ThirdPartyAdapterRegistry.TryGetStaticIntMembers(typeName, out string[] foreignMembers))
+                return new Dictionary<string, int>(0, StringComparer.Ordinal);
+            members = foreignMembers;
+        }
         Dictionary<string, int> values = new(members.Length, StringComparer.Ordinal);
         foreach (string member in members)
             values.Add(member, MonsterValueReader.ReadInt(monster, member));

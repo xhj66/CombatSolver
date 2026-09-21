@@ -45,6 +45,39 @@ internal static class ModifyHpLostMirrors
     private static readonly Registry BeforeOstyLateRegistry = CreateBeforeOstyLateRegistry();
     private static readonly Registry AfterOstyRegistry = CreateAfterOstyRegistry();
     private static readonly Registry AfterOstyLateRegistry = CreateAfterOstyLateRegistry();
+    private static readonly object RegistrationLock = new();
+    private static bool _sealed;
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.ModifyHpLostAfterOstyLate"/> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 这一阶段最常见的就是「每回合最多掉多少血」的上限（原版硬化外壳、第三方 Invincible）。
+    /// 不登记时调用方会回落到实机重写，而实机重写读的是它自己的隐藏计数——克隆之后是初值，
+    /// 于是上限看起来永远没被消耗过，预测会高估自己的输出。登记须在任何根捕获或首次分发之前完成。
+    /// </remarks>
+    public static void RegisterAfterOstyLate(
+        Type modelType,
+        Func<AbstractModel, ModifyHpLostMirrorContext, decimal> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("血量损失镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_sealed)
+                throw new InvalidOperationException("ModifyHpLostAfterOstyLate 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.RegisterResult(AfterOstyLateRegistry, modelType, handler);
+        }
+    }
+
+    private static void Seal()
+    {
+        if (Volatile.Read(ref _sealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _sealed, true);
+    }
 
     public static decimal InvokeBeforeOsty(AbstractModel listener, ModifyHpLostMirrorContext context)
     {
@@ -69,6 +102,7 @@ internal static class ModifyHpLostMirrors
 
     public static decimal InvokeAfterOstyLate(AbstractModel listener, ModifyHpLostMirrorContext context)
     {
+        Seal();
         return AfterOstyLateRegistry.TryInvokeRegistered(listener, context, out var result)
             ? result.Value
             : InvokeOriginalAfterOstyLate(listener, context);

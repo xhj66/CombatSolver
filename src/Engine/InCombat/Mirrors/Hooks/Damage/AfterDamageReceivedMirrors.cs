@@ -43,14 +43,47 @@ internal static class AfterDamageReceivedMirrors
 
     private static readonly Registry Registry = CreateRegistry();
     private static readonly Registry LateRegistry = new(AfterDamageReceivedLate);
+    private static readonly object RegistrationLock = new();
+    private static bool _sealed;
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.AfterDamageReceived"/> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 每回合受伤累计一类的第三方 Power（心脏的 Invincible 就是这一类）必须在这里登记，
+    /// 否则计数永远是 0。登记须在任何根捕获或首次分发之前完成，之后明确拒绝；
+    /// 类型没有重写该虚方法时底层注册表会抛异常。
+    /// </remarks>
+    public static void Register(Type modelType, Action<AbstractModel, AfterDamageReceivedMirrorContext> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("受伤后镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_sealed)
+                throw new InvalidOperationException("AfterDamageReceived 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.Register(Registry, modelType, handler);
+        }
+    }
+
+    private static void Seal()
+    {
+        if (Volatile.Read(ref _sealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _sealed, true);
+    }
 
     public static void Invoke(AbstractModel listener, AfterDamageReceivedMirrorContext context)
     {
+        Seal();
         Registry.Invoke(listener, context);
     }
 
     public static void InvokeLate(AbstractModel listener, AfterDamageReceivedMirrorContext context)
     {
+        Seal();
         LateRegistry.Invoke(listener, context);
     }
 

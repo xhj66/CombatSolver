@@ -1,5 +1,24 @@
 # CombatSolver 测试清单
 
+## 未发布：AFTP 第一幕的常量构造攻击与 Looter（2026-09-21）
+
+- `StableAttackShapeChecks`：Passed，`ok=6`。命令 `dotnet run --project tools/StableAttackShapeChecks/StableAttackShapeChecks.csproj -c Release`。
+  覆盖原版两条常量构造重载（`SingleAttackIntent(int)` / `MultiAttackIntent(int, int)`）判定成立，
+  调用方捕获局部变量的闭包、调用方的无捕获 lambda，以及两种「派生意图在自己构造函数里再造一层闭包」
+  （往昔之章 `DynamicSingleAttackIntent` / `DynamicMultiAttackIntent` 的形状替身）判定不成立。
+  该判据是 `ThirdPartyAdapterRegistry.RegisterStableAttack` 声明的运行期核对点，见
+  [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+- 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）。
+- 结构门禁**未执行**：本机没有 PowerShell 7（`verify-refactor-boundaries.ps1` 带 `#requires -Version 7.0`），
+  而 Bash 入口在当前沙箱下无法启动（`couldn't create signal pipe, Win32 error 5`）。本轮不声称门禁通过。
+- `CombatSolver-AFTP` 与 `CombatSolver-Heart` 两个适配 Mod Release 构建通过（同上，0编译器警告）；
+  产物反编译核对：AFTP 侧 35 条常量构造攻击表、`RegisterMonsterStateMembers("Looter", "_mugCount")`、
+  `RegisterMonsterBranchResolver("Looter", "MUG_BRANCH")`、`RegisterOwnerRemovingMove("Looter", "ESCAPE")`、
+  `RequireConst("Looter", "EscapeBlock")`、`RecordThievery`、`CreatureEscaped` 全部在场。
+- **未验证**：没有在游戏内跑过真实 AFTP 战斗——Looter 的偷金币／逃跑与「第一幕不再出现
+  `:动态伤害`」两条仍需一局实机复核；适配层没有可加载真实 AFTP 程序集的自动化夹具
+  （`ADAPTED-ONPLAY-INTEGRATION-*` 跑在隔离游戏进程里，接不了真实第三方程序集）。
+
 ## 0.43.2：混合用药、生成牌、路线缓存与增量历史计数
 
 - 强制／智能混合用药：`SEARCH-HP-TARGET-STOP` / `312cb8cd77fb470eaac9bbc48cd19506` Passed，强制能量药与智能力量药的真实搜索在零战损胜利时仅用一瓶，DOP1/DOP2 完整结果和非时序指标逐字段一致；改为只持防御牌与 15 HP 敌人时，仅强制药无法获胜，智能火焰药作为第二瓶救命且不被误拦。纯合同核对强制基线只允许指定槽位、额外一瓶仅比强制基线多省 1 HP 时不满足 9 HP 门槛、强制药本身不计入额外药机会成本及梯度瓶数。隔离实例已清理。中间正向场景曾 Failed：初始接线把只允许强制药的临时策略传给后续 Smart 审计，使 `maximum=0`；改由审计读取原始逐瓶策略后通过。结构门禁 `REFACTOR_BOUNDARIES_OK search_files=205`，Windows Release 0 警告／错误。短根验证了混合策略、早停和救命路径；未取得玩家原战斗同根对照，也未实测非零但不足门槛的实际两药胜利比较。启动器曾报告一次 `Import-Clixml` 解析警告，随后游戏请求 Passed、目标断言完成；未把警告当成产品行为结论。

@@ -46,6 +46,8 @@
   <ItemGroup>
     <Compile Remove="tools/**/*.cs" />
     <Compile Remove="outputs/**/*.cs" />
+    <!-- 适配 Mod 是独立程序集（各自有自己的清单与 csproj），不能进求解器本体的编译。 -->
+    <Compile Remove="adapters/**/*.cs" />
     <EmbeddedResource Include="src/UI/English.json" LogicalName="CombatSolver.UI.English.json" />
     <PackageReference Include="Krafs.Publicizer" Version="2.3.0" PrivateAssets="all" />
     <Publicize Include="sts2" IncludeVirtualMembers="false" IncludeCompilerGeneratedMembers="false" />

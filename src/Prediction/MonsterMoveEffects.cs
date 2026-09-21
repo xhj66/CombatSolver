@@ -14,7 +14,10 @@ namespace CombatSolver;
 internal static partial class MonsterMoveEffects
 {
     public static bool RemovesOwner(MonsterModel monster, string moveId)
-        => (monster.GetType().Name, moveId) is
+        // 第三方适配 Mod 登记的「施法者自己离场」行动。求解器本体不认识这些类型，登记表为空时
+        // 这一行不多走；短名键控与既有分支一致。
+        => ThirdPartyAdapterRegistry.RemovesOwner(monster.GetType().Name, moveId)
+            || (monster.GetType().Name, moveId) is
             ("GasBomb", "EXPLODE_MOVE") or
             ("WaterfallGiant", "EXPLODE_MOVE") or
             ("FatGremlin", "FLEE_MOVE") or
@@ -22,7 +25,12 @@ internal static partial class MonsterMoveEffects
 
     public static bool Supports(MonsterModel monster, string moveId)
     {
-        return (monster.GetType().Name, moveId) is
+        string typeName = monster.GetType().Name;
+        // 第三方适配 Mod 登记的行动效果优先。求解器本体不认识这些类型，登记表为空时这一行
+        // 不多走；短名键控与既有分支一致。
+        if (ThirdPartyAdapterRegistry.HasMoveEffect(typeName, moveId))
+            return true;
+        return (typeName, moveId) is
             ("SludgeSpinner", "OIL_SPRAY_MOVE") or
             ("SludgeSpinner", "RAGE_MOVE") or
             ("Flyconid", "VULNERABLE_SPORES_MOVE") or
@@ -263,6 +271,21 @@ internal static partial class MonsterMoveEffects
                 move.Owner,
                 "_turnsUntilSummonable",
                 combat.GetMonsterInt(move.Owner, "_turnsUntilSummonable") - 1);
+        }
+        // 第三方适配 Mod 登记的行动效果。命中即由登记方独占这次行动，不再走下面的原版分派——
+        // 登记方负责把它依赖的全部状态都镜像进模拟状态（docs/THIRD_PARTY_ADAPTERS.md §3.2）。
+        if (ThirdPartyAdapterRegistry.TryApplyMove(
+                simulator,
+                combat,
+                move,
+                player,
+                plannedChoices,
+                out bool foreignApplied,
+                out bool foreignKilledOwner))
+        {
+            if (foreignKilledOwner)
+                killedOwner = true;
+            return foreignApplied;
         }
 
         switch ((type, id))
