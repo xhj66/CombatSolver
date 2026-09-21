@@ -498,6 +498,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |
 | `RegisterStaticIntMembers(怪物类型名, 成员名…)` | 只在根捕获读一次的静态数值 |
 | `RegisterStableAttack(怪物类型名, 行动 Id)` | 该行动的攻击数值在意图构造时即已固定（`MultiAttackIntent(常量, 常量)` 一类），压掉预测器的「动态伤害」误报。**运行期会核对意图形状**，见下 |
+| `RegisterMonsterAttackValues(怪物类型名, 行动 Id, resolver)` | 该行动的伤害／段数**每次出手都要按分支状态现算**（`Dynamic*AttackIntent` 一类）。`resolver(combat, monster)` 只读模拟状态，返回 `BranchMonsterAttack(伤害, 段数)`；与上一条**互斥**。见下 |
 | `RegisterOwnerRemovingMove(怪物类型名, 行动 Id)` | 该行动把**施法者自己移出战斗**（逃跑／脱战，或先杀掉自己再留下生成物）。效果侧由登记方在处理器里调 `CreatureEscaped`（逃跑）或置 `killedOwner`（自杀），这一条负责让意图预测侧停止给它排后续回合 |
 | `MonsterSpawnSupport.SpawnByType(…, Type 怪物类型, …)` | 按**运行时类型**生成第三方怪物（召唤／分裂／复活）。见下 |
 | `MonsterRngSupport.State(simulator, monster)` | 怪物自己那条私有 RNG 流（`MonsterModel.Rng`）在预测里的分支副本，提供 `NextInt` / `NextFloat` / `NextItem` / `Draws`。见下 |
@@ -719,6 +720,51 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 这条判据**只管伤害**。段数走 `Repeats`，而 `MultiAttackIntent` 还有一条
 `(int damage, Func<int> repeatCalc)` 重载（伤害是常量、段数不是），它不在判据覆盖范围内——
 多段行动仍须按反编译确认用的是 `(int, int)` 那条重载。
+
+#### 数值真的会变的行动：`RegisterMonsterAttackValues`
+
+`RegisterStableAttack` 声明的是「数值永远不会变」。往昔之书的 `STAB` 是另一回事：它读的是自己身上
+**每次转移都会 +1** 的计数，冻结值会让整场都按捕获那一刻算。
+
+```csharp
+private string SelectNextMove(Creature owner, Rng rng, MonsterMoveStateMachine sm)
+{
+    int num = rng.NextInt(100);
+    if (num < 15) { … StabCount++; return "BIG_STAB"; }
+    …
+    StabCount++; return "STAB";                      // 四条出口都 +1
+}
+
+new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () => StabCount))
+```
+
+登记方式是给出一个**只读模拟状态**的解析器：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterStaticIntMembers("BookOfStabbing", "StabDamage");
+ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("BookOfStabbing", "_stabCount");
+ThirdPartyAdapterRegistry.RegisterMonsterAttackValues(
+    "BookOfStabbing",
+    "STAB",
+    static (combat, monster) => new BranchMonsterAttack(
+        combat.GetMonsterStaticInt(monster.Creature, "StabDamage"),   // A9+ 7／否则 6，根捕获时冻结
+        combat.GetMonsterInt(monster.Creature, "_stabCount")));       // 段数每次出手现算
+```
+
+四条纪律：
+
+1. **解析器只读模拟状态。** 搜索里每个分支都是实机模型的一份共享引用，`GetMonsterInt` /
+   `GetMonsterStaticInt` 读的是**这个分支**的值；直接读实机字段会让所有分支看到同一个数，
+   而且拿不到未来回合的推演值。
+2. **段数依赖的计数必须先播种。** 它是 `RegisterMonsterStateMembers` 的成员，根捕获时读一次实机值
+   （实机此刻显示的就是它），之后随分支 Fork、进状态指纹。往昔之书**不能**在根捕获时再跑一次分支来
+   「初始化」——实机已经跑过一次了，再跑一次就是 §2.13 那个 7×15 的第二份。
+3. **登记之后不能再声明固定。** 同一条行动两边都登记会在初始化时直接抛错：执行侧会按动态值走，
+   界面侧却被固定声明压掉「动态伤害」提示，是一条自相矛盾的登记。
+4. **它同时改搜索结算与当前回合的意图显示。** `BranchMonsterAi.CurrentMove` 是两条路共同的入口；
+   预览的后续回合仍然受 §2.13 那条「未声明的第三方分支不调用」约束。
+
+往昔之书的完整清单与逐行对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.17。
 
 ## 3. 登记的纪律
 

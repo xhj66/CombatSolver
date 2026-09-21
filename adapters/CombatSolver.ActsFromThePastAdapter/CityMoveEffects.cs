@@ -42,6 +42,7 @@ internal static class CityMoveEffects
         "Snecko",
         "Chosen",
         "Champ",
+        "BookOfStabbing",
     ];
 
     /// <summary>Bear 的冲刺格挡（AFTP <c>LungeBlock</c>）。</summary>
@@ -184,7 +185,32 @@ internal static class CityMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Champ", "GLOAT", ChampGloat);
         // Anger：先清掉自己身上所有减益，再加 StrengthAmount × 3 点力量
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Champ", "ANGER", ChampAnger);
+
+        // --- 往昔之书（BookOfStabbing，第二幕精英） ---
+        // STAB 的意图是 DynamicMultiAttackIntent(() => StabDamage, () => StabCount)：伤害按 A9
+        // 冻结（StabDamage 属性），段数是**每次出手现算**的 _stabCount，所以只有它必须走动态登记；
+        // BIG_STAB 是 SingleAttackIntent(BigStabDamage)，已在 LaterActsStableAttacks 里按冻结值登记。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("BookOfStabbing", "StabDamage");
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("BookOfStabbing", "_stabCount");
+        ThirdPartyAdapterRegistry.RegisterMonsterAttackValues(
+            "BookOfStabbing",
+            "STAB",
+            BookOfStabbingStab);
+        // 开场那条 PainfulStabsPower（AfterAddedToRoom 施加）是**原版** Power，攻击后镜像
+        // （AfterAttackMirrors.HandlePainfulStabsPower，按未格挡命中数往弃牌堆塞 Wound）已在核心里，
+        // 根捕获时这只怪身上就带着它，不需要适配层再登记。
     }
+
+    /// <summary>
+    /// BookOfStabbing.STAB 的出手数值：伤害 = <c>StabDamage</c>（A9+ 7，否则 6，根捕获时冻结），
+    /// 段数 = 当前分支的 <c>_stabCount</c>（分支解析器每次转移 +1）。
+    /// </summary>
+    private static BranchMonsterAttack BookOfStabbingStab(
+        SimulatedCombatState combat,
+        MonsterModel monster)
+        => new(
+            combat.GetMonsterStaticInt(monster.Creature, "StabDamage"),
+            combat.GetMonsterInt(monster.Creature, "_stabCount"));
 
     /// <summary>Chosen.HexMove：给每个活着的目标 <c>HexAmount</c> 层灾祸。</summary>
     private static bool ChosenHex(

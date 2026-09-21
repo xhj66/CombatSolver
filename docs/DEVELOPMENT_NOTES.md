@@ -12,6 +12,22 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：动态攻击值登记点与往昔之书（`BookOfStabbing`）（2026-09-21）
+
+- 本体新增第三类攻击数值口径 `ThirdPartyAdapterRegistry.RegisterMonsterAttackValues(怪物类型名, 行动 Id, resolver)`：
+  在此之前只有「数值在构造时固定」（`RegisterStableAttack`，压掉误报）和「根捕获时冻结的静态值」两种，
+  而 `DynamicMultiAttackIntent(() => 伤害, () => 段数)` 这类行动的数值**确实会变**——往昔之书的段数
+  每回合 +1，冻结值会让整场都按捕获那一刻的段数算。`BranchMonsterAi.CurrentMove` 现在先查这张表，
+  命中的行动按**当前分支**的模拟状态现算，未命中的仍走冻结值。两条声明**互斥**：同一条行动两边都
+  登记会在初始化时直接抛错（执行侧按动态值走、界面侧却被固定声明压掉「动态伤害」提示，是自相矛盾的登记）。
+- AFTP 第二幕精英 `BookOfStabbing`：`MOVE_BRANCH` 解析器逐行照抄（先抽 `NextInt(100)`，四条出口统一
+  `_stabCount++`，`< 15` 时不连出 `BIG_STAB`、连出两次 `STAB` 就转 `BIG_STAB`），`_stabCount` 由根捕获
+  按实机值播种（实机在捕获前已经跑过一次分支，**不能**在捕获时再跑一次，否则就是 §2.9 那个 7×15 的第二份）；
+  `STAB` 的伤害走 `StabDamage` 静态成员（A9+ 7／否则 6），段数走模拟状态的 `_stabCount`；`BIG_STAB` 仍走
+  常量攻击表。开场那条 `PainfulStabsPower` 反编译复核为**原版** Power，核心里早有攻击后镜像，不需要新增。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.17，登记纪律见
+  [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+
 ## 未发布：第二幕首领与精英（Chosen／Champ）（2026-09-21）
 
 - 再补两只第二幕怪物：`Chosen`（开场必上灾祸、之后减益／攻击轮换）与 `Champ`（第二幕首领：半血转阶段、

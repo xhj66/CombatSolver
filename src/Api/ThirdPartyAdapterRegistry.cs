@@ -86,6 +86,7 @@ internal static class ThirdPartyAdapterRegistry
     private static readonly Dictionary<string, TurnStartPowerHandler> TurnStartPowerTable = new(StringComparer.Ordinal);
     private static readonly HashSet<string> AllowedCombatSubscriberTypes = new(StringComparer.Ordinal);
     private static readonly HashSet<(string Type, string Id)> StableAttackTable = [];
+    private static readonly Dictionary<(string Type, string Id), MonsterAttackValueResolver> DynamicAttackTable = [];
     private static readonly HashSet<(string Type, string Id)> OwnerRemovingMoveTable = [];
 
     // === 门禁：ModHelper 战斗订阅者放行 ===
@@ -234,8 +235,56 @@ internal static class ThirdPartyAdapterRegistry
         return true;
     }
 
-    // === 怪物攻击意图：数值在构造时固定的行动 ===
+    // === 怪物攻击意图：每次出手都要现算的行动 ===
 
+    /// <summary>
+    /// 某条第三方攻击行动在当前分支下的伤害与段数。
+    /// </summary>
+    /// <remarks>
+    /// 只能读**模拟状态**（<paramref name="combat"/> 的怪物标量状态、玩家/生物血量等都从它取），
+    /// 不得读实机字段：搜索里每个分支都是实机模型的一份共享引用。
+    /// </remarks>
+    public delegate BranchMonsterAttack MonsterAttackValueResolver(
+        SimulatedCombatState combat,
+        MonsterModel monster);
+
+    /// <summary>
+    /// 声明某条第三方攻击行动的伤害或段数**会随战斗推进变化**，由求解器每次出手前现算。
+    /// </summary>
+    /// <remarks>
+    /// 根捕获时冻结的静态攻击值对这类行动是错的：往昔之书的多重刺击段数是
+    /// <c>DynamicMultiAttackIntent(() =&gt; StabDamage, () =&gt; StabCount)</c>，而 <c>StabCount</c>
+    /// 每回合都被分支选择函数 +1（第 1 回合 3 段、第 2 回合 4 段……），冻结值会让整场都按捕获那一刻算。
+    /// 登记之后，搜索里这条行动的每一段都按**当前分支**的模拟状态重算；没登记的行动仍走冻结值
+    /// （见 <see cref="RegisterStableAttack"/> 对另一类形状的说明）。
+    ///
+    /// <para>
+    /// 与 <see cref="RegisterStableAttack"/> **互斥**：同一条行动不能既声明「数值在构造时固定」又声明
+    /// 「每次出手现算」。两种声明混在一起时执行侧按动态值走、界面侧却被固定声明压掉「动态伤害」提示，
+    /// 结果是一条自相矛盾的登记；这里当场失败，而不是让它带着矛盾跑。
+    /// </para>
+    /// </remarks>
+    public static void RegisterMonsterAttackValues(
+        string monsterTypeName,
+        string moveId,
+        MonsterAttackValueResolver resolver)
+    {
+        if (StableAttackTable.Contains((monsterTypeName, moveId)))
+        {
+            throw new InvalidOperationException(
+                $"{monsterTypeName}.{moveId} 已登记为「数值在构造时固定」的攻击（RegisterStableAttack），" +
+                "不能再登记动态攻击值；两种声明互斥。");
+        }
+        DynamicAttackTable.Add((monsterTypeName, moveId), resolver);
+    }
+
+    public static bool TryGetMonsterAttackValues(
+        string monsterTypeName,
+        string moveId,
+        out MonsterAttackValueResolver? resolver)
+        => DynamicAttackTable.TryGetValue((monsterTypeName, moveId), out resolver);
+
+    // === 怪物攻击意图：数值在构造时固定的行动 ===
     /// <summary>
     /// 声明第三方怪物的某个攻击行动，其伤害与段数在意图构造时即已固定，不读怪物身上的可变状态。
     /// </summary>
@@ -253,7 +302,15 @@ internal static class ThirdPartyAdapterRegistry
     /// </para>
     /// </remarks>
     public static void RegisterStableAttack(string monsterTypeName, string moveId)
-        => StableAttackTable.Add((monsterTypeName, moveId));
+    {
+        if (DynamicAttackTable.ContainsKey((monsterTypeName, moveId)))
+        {
+            throw new InvalidOperationException(
+                $"{monsterTypeName}.{moveId} 已登记了动态攻击值（RegisterMonsterAttackValues），" +
+                "不能再声明为固定攻击；两种声明互斥。");
+        }
+        StableAttackTable.Add((monsterTypeName, moveId));
+    }
 
     public static bool HasStableAttack(string monsterTypeName, string moveId)
         => StableAttackTable.Contains((monsterTypeName, moveId));

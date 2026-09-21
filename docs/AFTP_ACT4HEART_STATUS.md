@@ -523,6 +523,45 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 
 ---
 
+### 2.17 第二幕：往昔之书（`BookOfStabbing`，精英）与「动态攻击值」登记点
+
+§2.9 修掉的是**预览不去动实机**这一半；这一节补上另一半：这只怪的段数本来就该随回合涨，
+求解器必须**按当前分支现算**，而不是用根捕获那一刻冻结的值。
+
+| 部位 | 源码（`ActsFromThePast.BookOfStabbing`） | 适配 |
+| --- | --- | --- |
+| 初始行动 | 状态机的初始状态是 `MOVE_BRANCH`，开场就走一次 `SelectNextMove`；`_stabCount` 由 `AfterAddedToRoom` 置 1，随后每次转移 +1 | 根捕获按实机值播种 `_stabCount`（`RegisterMonsterStateMembers`），**不**在捕获时再跑一次分支 |
+| `MOVE_BRANCH` | 抽一次 `rng.NextInt(100)`；`< 15` 时最近一步是 `BIG_STAB` ⇒ `STAB`、否则 `BIG_STAB`；最近连出两次 `STAB` ⇒ `BIG_STAB`；否则 `STAB`。四条出口**都先 `StabCount++`** | `CityBranchResolvers.BookOfStabbing`（RNG 顺序照抄）；因为它写自己的计数，**不在**「纯读取」名单里 |
+| `STAB` | `DynamicMultiAttackIntent(() => StabDamage, () => StabCount)`：伤害按 A9 冻（7／6），段数现算 | `RegisterMonsterAttackValues("BookOfStabbing", "STAB", …)`：伤害取 `GetMonsterStaticInt("StabDamage")`、段数取 `GetMonsterInt("_stabCount")`，每次出手重算 |
+| `BIG_STAB` | `SingleAttackIntent(BigStabDamage)`（A9 24／21，常量构造） | `LaterActsStableAttacks` 已按冻结值登记 |
+| 开场能力 | `AfterAddedToRoom` 给自己挂 1 层 `PainfulStabsPower` | **原版 Power**，攻击后镜像（`AfterAttackMirrors.HandlePainfulStabsPower`：按每个玩家的未格挡命中数往弃牌堆塞 `Wound`）核心里已有，实机实例在根捕获时已带该 Power |
+| 死亡 | `OnDeath` 只播一句音效（C# 事件，不是钩子） | 无需处理；模拟侧不触发实机事件 |
+
+**新增的核心能力：`RegisterMonsterAttackValues`（动态攻击值）**。求解器原来只有两种口径——
+`RegisterStableAttack`（数值在意图构造时固定，压掉「动态伤害」误报）和「冻结值」。`Dynamic*AttackIntent`
+属于第三类：数值确实会变，冻结值会让**整场都按捕获那一刻算**（往昔之书会在整场都用同一个段数）。
+现在适配层可以登记一个 `(combat, monster) => BranchMonsterAttack(伤害, 段数)`，`BranchMonsterAi.CurrentMove`
+每次取当前行动时先查这张表：命中的行动按模拟状态重算，未命中的仍走冻结值。两条纪律：
+
+1. 解析器**只读模拟状态**（`GetMonsterInt` / `GetMonsterStaticInt`）。段数依赖的计数必须先用
+   `RegisterMonsterStateMembers` 播种，否则根捕获之后读未播种成员会当场抛（`GetMonsterInt` 的既有语义）。
+2. 与 `RegisterStableAttack` **互斥**：同一条行动两边都登记会在初始化时直接抛错。混在一起时执行侧按
+   动态值走、界面侧却被固定声明压掉「动态伤害」提示，是自相矛盾的登记。
+
+这条登记同时作用于**搜索结算**（`MonsterMoveSemantics.ApplyForecastMove` 逐段取 `move.AttackHits`）与
+**当前回合的意图显示**（`IntentForecaster` 当前回合也读实机意图，值本来就与实机一致）；预览的后续回合
+仍按 §2.9 在分支处停下。
+
+**一处已知的、非往昔之章独有的差异**：`PainfulStabsPower.ShouldCreatureBeRemovedFromCombatAfterDeath`
+对**持有者自己**返回 `false`（书死了以后尸体留在场上，StS1 同款表现），而求解器的死亡生命周期根本没有
+分发这个钩子（核心只镜像了 `ShouldPowerBeRemovedAfterOwnerDeath`），模拟里死掉的敌人一律移出阵容。
+对往昔之书这场单体精英战斗而言，影响只落在「阵容里是否还留着一具尸体」：它已经死了，不参与行动、
+不再触发这个 Power 的攻击后效果，胜负判定看的是「还有没有活着的敌人」。这是**原版** Power 的既有差异
+（原版实验体身上挂着同一个 Power，同样如此），不是这次适配引入的；要补就得动核心死亡生命周期，
+影响原版语义，不在本批范围内，因此这里只记下来。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -766,18 +805,21 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整） | SnakeDagger |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14） | Repulsor、Exploder、Spiker、OrbWalker |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | Repulsor、Exploder、Spiker、OrbWalker |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
-| 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
+| 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
 | 5 | 强制改写当前行动 / 眩晕 | Guardian（`SetMoveImmediate` + `ModeShiftPower`；**攻击前钩子已就位**） | ShelledParasite（同类；攻击前钩子已就位） | AwakenedOne |
 | 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
 | 7 | 病症／可打出性镜像 | SlaverRed（`EntangledPower` + `EntangledOriginal` 病症） | — | — |
 | 8 | 预测期卡牌操作 | Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张） | — | — |
 | 9 | 非战斗内容（事件／遗物同名类，**不是怪物**） | — | — | TorchHead 之外的条目见 `_build/_aftp_model_hooks.txt` |
 
-**求解器本体要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
+**已经补上的核心能力**：动态攻击值登记（`RegisterMonsterAttackValues`，见 §2.17；往昔之书是第一家，
+第五幕的 `Maw.NOMNOMNOM_MULTI`、`Hexaghost.DIVIDER` 这类 `Dynamic*AttackIntent` 之后沿用同一条路）。
+
+**求解器本体仍要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
 ② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ `BeforeSideTurnStart` 与
 `AfterSideTurnEnd`（非 Late）两个阶段分发点（组 6）；④ 手牌病症与可打出性镜像（组 7）；
 ⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，Guardian/Lagavulin/ShelledParasite/AwakenedOne）。

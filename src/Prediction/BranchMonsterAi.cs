@@ -129,6 +129,19 @@ internal static class BranchMonsterAi
 
     public static ForecastMove CurrentMove(BranchMonsterAiState state, SimulatedCombatState combat)
     {
+        // 第三方登记了「这条行动每次出手都要现算」时，按**当前分支**的模拟状态重算伤害与段数；
+        // 根捕获时冻结的那份静态值对这类行动是错的（段数会在战斗里增长）。
+        if (ThirdPartyAdapterRegistry.TryGetMonsterAttackValues(
+                state.Monster.GetType().Name,
+                state.Current.Id,
+                out ThirdPartyAdapterRegistry.MonsterAttackValueResolver? resolver))
+        {
+            BranchMonsterAttack resolved = resolver!(combat, state.Monster);
+            List<ForecastAttackHit> dynamicHits = [];
+            for (int index = 0; index < Math.Max(resolved.Repeats, 1); index++)
+                dynamicHits.Add(new ForecastAttackHit(resolved.BaseDamage, resolved.BaseDamage));
+            return new ForecastMove(state.Monster.Creature, state.Current, dynamicHits);
+        }
         if (!state.Static.AttacksByMove.TryGetValue(
                 state.Current.Id,
                 out IReadOnlyList<BranchMonsterAttack>? attacks))

@@ -1,5 +1,36 @@
 # CombatSolver 测试清单
 
+## 未发布：动态攻击值登记点与第二幕精英往昔之书（`BookOfStabbing`）（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `ThirdPartyAdapterRegistry.MonsterAttackValueResolver`
+  委托、`DynamicAttackTable`、`RegisterMonsterAttackValues` / `TryGetMonsterAttackValues`、
+  与 `RegisterStableAttack` 的双向互斥抛错，以及 `BranchMonsterAi.CurrentMove` 命中动态表时
+  「先查表 → 现算 → 按 `Math.Max(Repeats, 1)` 逐段建 `ForecastMove`」的分支全部在场；
+  适配里 `RegisterStaticIntMembers("BookOfStabbing", "StabDamage")`、
+  `RegisterMonsterStateMembers("BookOfStabbing", "_stabCount")`、
+  `RegisterMonsterAttackValues("BookOfStabbing", "STAB", …)`（返回
+  `new BranchMonsterAttack(GetMonsterStaticInt("StabDamage"), GetMonsterInt("_stabCount"))`）、
+  `CityBranchResolvers` 的 `BookOfStabbing` 解析器（先 `rng.NextInt(100)`、四条出口统一
+  `SetMonsterInt("_stabCount", +1)`）与 `RegisteredMonsterTypes` 里的 `BookOfStabbing` 全部在场；
+  部署产物与工作区构建哈希逐字节相同（核心 6,291,968 B、AFTP 65,024 B、Heart 30,720 B 未变）。
+- 逐行对照：`_stabCount` 首值 1 来自 `AfterAddedToRoom`、实机在根捕获前已经跑过一次
+  `MOVE_BRANCH`（所以**不能**在捕获时再跑一次）、`STAB` 的伤害按 `AscensionHelper` 分支
+  （A9+ 7／否则 6，走静态成员冻结）、段数读同一个 `_stabCount`、`BIG_STAB` 仍是
+  `SingleAttackIntent(BigStabDamage)`（已在常量攻击表里）。
+- `PainfulStabsPower` 经反编译复核为**原版**类型（`MegaCrit.Sts2.Core.Models.Powers`，AFTP 源码里
+  没有同名类）：求解器已有的 `AfterAttackMirrors.HandlePainfulStabsPower` 与源码逐行等价
+  （攻击者是持有者、目标不是自己那一方、`IsPoweredAttack`，按每个玩家的未格挡命中数 × 层数
+  往弃牌堆塞 `Wound`），实机实例在根捕获时已带该 Power，因此**没有**新增镜像。
+- **未验证**：没有在游戏内打过「往昔之书」精英，所以「第一回合段数与实机一致」「每回合 +1」
+  「Painful Stabs 按未格挡命中数塞 Wound」三条都是**未实机验证**；也没有最小差分夹具
+  （AFTP 程序集接不进无人测试的隔离进程）。§2.9 那次 7×15 的复现同样没有实机存档。
+- 已知差异（原版 Power 的既有行为，不在本批范围）：`PainfulStabsPower`
+  `ShouldCreatureBeRemovedFromCombatAfterDeath` 对持有者自己返回 `false`，核心死亡生命周期没有分发
+  这个钩子（模拟里死掉的敌人一律移出阵容）；对单体精英战斗只影响「阵容里是否留着尸体」，
+  原版实验体同样如此。记录在 [AFTP 状态](AFTP_ACT4HEART_STATUS.md) §2.17。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：第二幕首领与精英（Chosen／Champ）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

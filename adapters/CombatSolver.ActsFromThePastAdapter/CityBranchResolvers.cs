@@ -30,22 +30,27 @@ internal static class CityBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Romeo", "MOVE_BRANCH", Romeo);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Chosen", "MOVE_BRANCH", Chosen);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Champ", "MOVE_BRANCH", Champ);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "BookOfStabbing",
+            "MOVE_BRANCH",
+            BookOfStabbing);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Centurion", "Mystic", "Mugger", "Romeo", "Chosen", "Champ"];
+        ["Centurion", "Mystic", "Mugger", "Romeo", "Chosen", "Champ", "BookOfStabbing"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：都只读实机 StateLog、传入的 rng 与自己的标量字段，
     /// 不写实机状态、不下命令；<c>Mystic</c> 那条另外读**模拟状态**里队友的血量（也不是实机字段）。
     /// </summary>
     /// <remarks>
-    /// **`Chosen` 与 `Champ` 刻意不在名单里**：它们的选择函数会写自己的计数器
-    /// （`Chosen._usedHex`、`Champ._numTurns` / `_thresholdReached` / `_forgeTimes`）。
-    /// 预览默认不调用未声明的第三方分支，正是为了不让这种「选择即记账」的委托去改实机状态——
-    /// 往昔之书的 `StabCount++` 就是这么把真实战斗改成 7×15 的（§2.9）。这两只的预览会在分支处停下
+    /// **`Chosen`、`Champ` 与 `BookOfStabbing` 刻意不在名单里**：它们的选择函数会写自己的计数器
+    /// （`Chosen._usedHex`、`Champ._numTurns` / `_thresholdReached` / `_forgeTimes`、
+    /// `BookOfStabbing._stabCount`）。预览默认不调用未声明的第三方分支，正是为了不让这种
+    /// 「选择即记账」的委托去改实机状态——往昔之书的 `StabCount++` 在预览里被反复调用时，
+    /// 就是这么把真实战斗改成 7×15 的（§2.9）。这三只的预览会在分支处停下
     /// 并显示「预览可能不完整」，搜索侧照常按登记的解析器算。
     /// </remarks>
     internal static readonly (string Monster, string Branch)[] PureSelectors =
@@ -55,6 +60,34 @@ internal static class CityBranchResolvers
         ("Mugger", "MUG_BRANCH"),
         ("Romeo", "MOVE_BRANCH"),
     ];
+
+    /// <summary>
+    /// BookOfStabbing.SelectNextMove：先抽一次 RNG；15 以下时最近一步是 BIG_STAB 就 STAB、
+    /// 否则 BIG_STAB；最近连出两次 STAB 就 BIG_STAB；其余 STAB。**四条出口全都先
+    /// <c>_stabCount++</c>**——这个计数就是每次 <c>STAB</c> 的段数（见
+    /// <c>CityMoveEffects</c> 里登记的动态攻击值），所以这条分支属于「选择即记账」，
+    /// 不在 <see cref="PureSelectors"/> 里。
+    /// </summary>
+    private static string BookOfStabbing(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = simulator;
+        int num = rng.NextInt(100);
+        string move = num < 15
+            ? LastMove(log, "BIG_STAB") ? "STAB" : "BIG_STAB"
+            : LastTwoMoves(log, "STAB") ? "BIG_STAB" : "STAB";
+        // 与源码同序：RNG 先抽，四条出口各自 StabCount++（无分支差异，等价于出口前统一 +1）。
+        combat.SetMonsterInt(
+            monster.Creature,
+            "_stabCount",
+            combat.GetMonsterInt(monster.Creature, "_stabCount") + 1);
+        return move;
+    }
 
     /// <summary>
     /// Chosen.SelectNextMove：开场**必定**先来一次 HEX（并把 <c>UsedHex</c> 置位——这一步会写状态，
