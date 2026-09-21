@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Afflictions;
 using MegaCrit.Sts2.Core.Models.Cards;
@@ -30,9 +31,25 @@ internal static class CanonicalModels
 
     public static T Affliction<T>() where T : AfflictionModel => AfflictionCache<T>.Value;
 
+    /// <summary>
+    /// 按运行时类型取规范病症实例（第三方适配的登记项用）。外部程序集拿不到泛型形参，核心这边也不能
+    /// 用泛型；取不到就在调用点明确失败，而不是让调用方去猜。
+    /// </summary>
+    public static AfflictionModel Affliction(Type afflictionType)
+        => AfflictionTypeCache.GetOrAdd(afflictionType, static type =>
+            ModelDb.GetByIdOrNull<AfflictionModel>(ModelDb.GetId(type))
+            ?? throw new InvalidOperationException(
+                $"{type.FullName} 不在 ModelDb 里（或不是病症），第三方卡牌病症无法实例化。"));
+
     public static T Enchantment<T>() where T : EnchantmentModel => EnchantmentCache<T>.Value;
 
     public static T Orb<T>() where T : OrbModel => OrbCache<T>.Value;
+
+    /// <summary>
+    /// 第三方类型无法用泛型缓存，按 <see cref="Type"/> 缓存（首次访问时查 <c>ModelDb</c>，
+    /// 与泛型入口同一条「不在类型初始化器里查询、避免把 ModelDb 未就绪固化」的纪律）。
+    /// </summary>
+    private static readonly ConcurrentDictionary<Type, AfflictionModel> AfflictionTypeCache = new();
 
     private static class PowerCache<T> where T : PowerModel
     {

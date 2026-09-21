@@ -47,6 +47,7 @@ internal static class ExordiumBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("JawWorm", "MOVE_BRANCH", JawWorm);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinNob", "MOVE_BRANCH", GremlinNob);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlaverBlue", "MOVE_BRANCH", SlaverBlue);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlaverRed", "MOVE_BRANCH", SlaverRed);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinWizard", "AFTER_CHARGE", GremlinWizard);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Looter", "MUG_BRANCH", Looter);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("AcidSlimeLarge", "MOVE_BRANCH", AcidSlimeLarge);
@@ -72,6 +73,7 @@ internal static class ExordiumBranchResolvers
         ("JawWorm", "MOVE_BRANCH"),
         ("GremlinNob", "MOVE_BRANCH"),
         ("SlaverBlue", "MOVE_BRANCH"),
+        ("SlaverRed", "MOVE_BRANCH"),      // SelectNextMove：只读 _usedEntangle + 行动历史 + RNG
         ("GremlinWizard", "AFTER_CHARGE"),  // SelectAfterCharge：只读 _currentCharge
         ("Looter", "MUG_BRANCH"),           // SelectAfterMug：只读 _mugCount
         ("AcidSlimeLarge", "MOVE_BRANCH"),  // 只读 _splitTriggered + RNG + 行动历史
@@ -88,6 +90,7 @@ internal static class ExordiumBranchResolvers
         "JawWorm",
         "GremlinNob",
         "SlaverBlue",
+        "SlaverRed",
         "GremlinWizard",
         "Looter",
     ];
@@ -209,6 +212,33 @@ internal static class ExordiumBranchResolvers
             return "STAB";
         if (!LastMove(log, "RAKE"))
             return "RAKE";
+        return "STAB";
+    }
+
+    /// <summary>
+    /// SlaverRed.SelectNextMove：抽一次 `NextInt(100)`——≥75 且没用过缠网就走 ENTANGLE；
+    /// ≥55 且用过缠网、且**最近两次都不是** STAB 就补一次 STAB；否则上一步不是 SCRAPE 就走 SCRAPE，
+    /// 都不满足就 STAB。分支本身不写 <c>_usedEntangle</c>（那是 ENTANGLE 行动干的）。
+    /// </summary>
+    private static string SlaverRed(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        int num = rng.NextInt(100);
+        if (num >= 75 && !combat.GetMonsterBool(monster.Creature, "_usedEntangle"))
+            return "ENTANGLE";
+        if (num >= 55
+            && combat.GetMonsterBool(monster.Creature, "_usedEntangle")
+            && !LastTwoMoves(log, "STAB"))
+        {
+            return "STAB";
+        }
+        if (!LastMove(log, "SCRAPE"))
+            return "SCRAPE";
         return "STAB";
     }
 

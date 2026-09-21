@@ -60,7 +60,7 @@
 
 ## 2. 第一幕覆盖现状
 
-### 2.1 已支持分支选择的怪物（12）
+### 2.1 已支持分支选择的怪物（13）
 
 | 怪物 | 分支 Id | 依赖 |
 | --- | --- | --- |
@@ -70,6 +70,7 @@
 | JawWorm | MOVE_BRANCH | StateLog + MonsterAi RNG |
 | GremlinNob | MOVE_BRANCH | StateLog |
 | SlaverBlue | MOVE_BRANCH | StateLog + MonsterAi RNG |
+| SlaverRed | MOVE_BRANCH | `_usedEntangle`（已播种；ENTANGLE 置位）+ StateLog + MonsterAi RNG，见 §2.45 |
 | GremlinWizard | AFTER_CHARGE | `_currentCharge`（已播种；CHARGING 自增 / ULTIMATE_BLAST 归零） |
 | Looter | MUG_BRANCH | `_mugCount`（已播种；MUG／LUNGE 各 +1），见 §2.8 |
 | AcidSlimeLarge | MOVE_BRANCH | `_splitTriggered`（已播种；`SplitPower` 受伤镜像置位），见 §2.11 |
@@ -80,17 +81,17 @@
 以上分支逻辑逐字对照 AFTP 源码（`SelectNextMove` / `SelectAfterCharge` / `SelectAfterMug`）复核，
 行动 Id 常量与分支节点 Id 均已核对字面值。
 
-### 2.2 走安全失败路径的怪物（4）
+### 2.2 走安全失败路径的怪物（0：原先列的四只都已适配）
 
-下列怪物的分支**依赖尚未建模的状态**，因此刻意不登记，保持抛
-`PredictionUnsupportedException`（装一半比不装更糟）：
+~~下列怪物的分支依赖尚未建模的状态，因此刻意不登记~~——这四只后来都补齐了，这里保留原判据与结论，
+指向各自的批次（**不再有**刻意保持硬失败的第一幕怪物）：
 
-| 怪物 | 分支 Id | 还缺什么 |
-| --- | --- | --- |
-| SlaverRed | MOVE_BRANCH | `_usedEntangle`；更要紧的是 `EntangledPower`（给玩家手牌打 `EntangledOriginal` 病症，禁止打出攻击牌），求解器没有对应的可打出性镜像 |
-| Hexaghost | MOVE_BRANCH | `_orbActiveCount`（可建模）＋ `DIVIDER` 的伤害由 `ACTIVATE` 按玩家血量现算（`DynamicMultiAttackIntent`），以及 `INFERNO` 的「升级全部 Burn + 再塞 3 张升级 Burn」，后者涉及预测期卡牌升级 |
-| Guardian | OFFENSIVE_BRANCH | `_isOpen` / `CloseUpTriggered` / `_pendingModeShift` + `ModeShiftPower`（受伤累计到阈值触发）、`SharpHidePower`，以及模式切换时的 `SetMoveImmediate(_closeUpState)` |
-| Lagavulin | MAIN_BRANCH | `IsAwake` / `StartsAwake` / `DebuffTurnCount` + `AsleepLagavulinPower`；`WakeUpFromDamage` 走 `CreatureCmd.Stun(…, "ATTACK")` |
+| 怪物 | 分支 Id | 当时的缺口 | 现状 |
+| --- | --- | --- | --- |
+| ~~SlaverRed~~ | MOVE_BRANCH | `_usedEntangle`；`EntangledPower`（给玩家手牌打 `EntangledOriginal` 病症，禁止打出攻击牌），求解器没有对应的可打出性镜像 | 已适配 §2.45（新增 `RegisterCardAfflictionSource` 入口） |
+| ~~Hexaghost~~ | MOVE_BRANCH | `_orbActiveCount`（可建模）＋ `DIVIDER` 的伤害由 `ACTIVATE` 按玩家血量现算（`DynamicMultiAttackIntent`），以及 `INFERNO` 的「升级全部 Burn + 再塞 3 张升级 Burn」，后者涉及预测期卡牌升级 | 已适配 §2.42 |
+| ~~Guardian~~ | OFFENSIVE_BRANCH | `_isOpen` / `CloseUpTriggered` / `_pendingModeShift` + `ModeShiftPower`（受伤累计到阈值触发）、`SharpHidePower`，以及模式切换时的 `SetMoveImmediate(_closeUpState)` | 已适配 §2.43（材料）＋ §2.44（本体） |
+| ~~Lagavulin~~ | MAIN_BRANCH | `IsAwake` / `StartsAwake` / `DebuffTurnCount` + `AsleepLagavulinPower`；`WakeUpFromDamage` 走 `CreatureCmd.Stun(…, "ATTACK")` | 已适配 §2.39 |
 
 ### 2.3 无分支的怪物（10）
 
@@ -1119,6 +1120,39 @@ Burn 升级与「升级后再塞的是升级版」都**未实机验证**；也�
 TWIN_SLAM 三次形态往返）、尖刺外壳的两处伤害（出攻击牌与死亡补刀）都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.45 第一幕最后一只：强盗红（`SlaverRed`）与本体新增「Power 驱动的卡牌病症」入口
+
+第一幕至此清空。这只怪物本身很小——`STAB`（纯攻击）、`SCRAPE`（攻击 + `VulnerableAmount` 层易伤）、
+`ENTANGLE`（给玩家挂缠网）——卡住它的一直是**病症与可打出性**：`EntangledPower` 在场上时，玩家手里
+（以及抽牌堆、弃牌堆里）**所有攻击牌**都带 `Unplayable`，打不出来。这条语义在原版对应
+`TangledPower`／`HexPower`／`RingingPower` 三个 Power，而求解器对它们**没有通用分发点**，是用
+`SimulatedCombatState.NormalizeCardAfflictions` 那套按类型写死的规范化等价表达的
+（Power 在 ⇒ 没病症的牌挂上、之后进入战斗的牌同样处理、Power 没了 ⇒ 摘掉；原版那三个 Power 的
+`AfterApplied`／`AfterCardEnteredCombat`／`AfterRemoved` 三个钩子在核心都不分发）。
+
+本批新增一个登记入口把这套规范化对第三方开放（`RegisterCardAfflictionSource(Power 类型名, 病症 Type, 牌型?)`，
+文档见 [第三方适配手册](THIRD_PARTY_ADAPTERS.md) §2.13），AFTP 侧登记为
+`("EntangledPower", ActsFromThePast.EntangledOriginal, CardType.Attack)`。
+
+| 行动／钩子 | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `MOVE_BRANCH` | `SelectNextMove`：抽一次 `NextInt(100)`；`>=75` 且没用过缠网 ⇒ ENTANGLE；`>=55` 且用过缠网、且最近两次不都是 STAB ⇒ STAB；上一步不是 SCRAPE ⇒ SCRAPE；否则 STAB | `ExordiumBranchResolvers.SlaverRed`（进 `PureSelectors`：只读 `_usedEntangle` 与行动历史、抽一次 RNG、不写状态） |
+| `ENTANGLE` | 给每个活着的目标挂 1 层 `EntangledPower`（applier 是自己），循环走完再置 `_usedEntangle = true` | `SlaverRedEntangle`（顺序照抄：先挂 Power、后置标记） |
+| `SCRAPE` | 攻击 + 每个活着目标 `VulnerableAmount` 层易伤 | `SlaverRedScrape`（A9+ 2／否则 1，走静态数值成员） |
+| `EntangledPower.AfterApplied` / `AfterCardEnteredCombat` / `AfterRemoved` | 施加时给所有攻击牌挂 `EntangledOriginal`；之后进入战斗的攻击牌也挂；被移除时清掉 | 三条都由上面那个入口表达（挂的层数固定 1） |
+| `EntangledPower.AfterSideTurnEnd` | 自己那一方（玩家）回合末移除自己 | `RegisterSideTurnEndPower("EntangledPower", …)`：`side == Owner.Side` 时 `SetPowerAmount(power, 0)`；病症随后由同一时点的规范化清掉（`PlayerTurnEndLifecycle` 在派发之后调用它） |
+| `EntangledOriginal.AfterApplied` / `BeforeRemoved` | 给牌加／去 `CardKeyword.Unplayable`（记住它原来是不是就不可打出） | **不用镜像**：核心的 `Afflict` 本来就调用病症自己的 `AfterApplied`，`ClearAffliction` 调用 `BeforeRemoved`，关键词落在可变预览卡上，`CanPlay` 读的正是这个集合 |
+
+**为什么不是近似**：`simulator.Afflict` 走的路径与原生三个 Power 完全一致（同一份规范化、同一个
+`Afflict`／`ClearAffliction`），只有「给哪一类牌挂」这一个参数来自登记；`EntangledPower` 的
+`Type = Debuff` ⇒ 神器（Artifact）照常挡下它，`ClearAffliction` 走 `BeforeRemoved` ⇒ 原来就不可打出的牌
+不会被误摘掉关键词。
+
+**未验证**：没有在游戏内打过「强盗红」遭遇，缠网的「整回合攻击牌不可打出」、回合末摘除、
+新生成攻击牌（例如小刀）也被缠、以及分支的三档抽样都**未实机验证**；也没有最小差分夹具
+（AFTP 程序集无法在无头测试进程里加载，这一条对全部 AFTP 批次同样适用）。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1366,10 +1400,10 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
-| 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
-| 5 | 强制改写当前行动 / 眩晕 | Guardian（`SetMoveImmediate` + `ModeShiftPower`；**攻击前钩子已就位**） | ShelledParasite（同类；攻击前钩子已就位） | AwakenedOne |
+| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化） | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
+| 5 | 强制改写当前行动 / 眩晕 | ✔ Guardian（`ForceMonsterMove`，§2.44）、✔ Lagavulin（`ForceStunnedMove`，§2.39） | ✔ ShelledParasite（§2.33） | AwakenedOne |
 | 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
-| 7 | 病症／可打出性镜像 | SlaverRed（`EntangledPower` + `EntangledOriginal` 病症） | — | — |
+| 7 | 病症／可打出性镜像 | ✔ SlaverRed（`EntangledPower` + `EntangledOriginal` 病症，§2.45：新增 `RegisterCardAfflictionSource`） | — | — |
 | 8 | 预测期卡牌操作 | Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张） | — | — |
 | 9 | 非战斗内容（事件／遗物同名类，**不是怪物**） | — | — | TorchHead 之外的条目见 `_build/_aftp_model_hooks.txt` |
 
@@ -1380,12 +1414,15 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 `OrbWalker` 的 `StrengthUpPower`、`Nemesis` 与 `Hexaghost`）、**第三方 Power 的 `BeforeSideTurnStart` 登记**
 （`RegisterSideTurnStartPower`，派发在 `TurnStartPowerSupport.TriggerBeforeSideTurnStart` 里；
 `combat.RoundNumber` 已在位，所以「只在第 1 回合」这类判据可原样表达；解锁 `Deca`／`Donu` 的
-`PlatedArmorPower` 与 `Byrd` 的 `FlightPower`，见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13）。
+`PlatedArmorPower` 与 `Byrd` 的 `FlightPower`，见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13）、
+**第三方 Power 驱动的卡牌病症登记**（`RegisterCardAfflictionSource`，把核心为原版 `TangledPower`／
+`HexPower`／`RingingPower` 写死的那套「Power 在 ⇒ 挂病症 / 消失 ⇒ 摘掉 / 新入场的牌同样处理」规范化
+对第三方开放；解锁 `SlaverRed` 的 `EntangledPower`，见 §2.45）。
 
 **求解器本体仍要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
-② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ 玩家侧非 Power 的回合开始特化与遗物触发（**非 Late 的 `AfterSideTurnEnd` 与第三方
-`BeforeSideTurnStart` 都已在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7）；
-⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，Guardian/Lagavulin/ShelledParasite/AwakenedOne）。
+② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ 玩家侧非 Power 的回合开始特化与遗物触发（**非 Late 的 `AfterSideTurnEnd`、第三方
+`BeforeSideTurnStart` 都已在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7，**已在 §2.45 补上**）；
+⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，只剩 `AwakenedOne`）。
 每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。
 
@@ -1444,13 +1481,13 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 `SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）；
 其后 §2.27–§2.44 的批次见各自小节（`Donu`／`Deca`／`SnakePlant`／`BronzeAutomaton`／`BronzeOrb`／
 `ShelledParasite`／`Collector`／`GremlinLeader`／`Byrd`／`Nemesis`／`Transient`／`Lagavulin`／`WrithingMass`／
-`TimeEater`／`Hexaghost`／`Guardian`）。第一幕至此只剩 `SlaverRed`。
+`TimeEater`／`Hexaghost`／`Guardian`／`SlaverRed`）。**第一幕 20 只至此全部完成**。
 
 **未适配与确切缺口**（每条都已反编译核对过，动手时不需要重新侦察）：
 
 | 幕 | 怪物 | 缺什么 |
 | --- | --- | --- |
-| 一 | `SlaverRed` | 手牌**病症与可打出性**镜像（`EntangledPower` + `EntangledOriginal` 病症，组 7）——需要本体的「卡牌可打出性」入口 |
+| 一 | ~~`SlaverRed`~~（已适配 §2.45） | 手牌**病症与可打出性**：`EntangledPower` + `EntangledOriginal`（给攻击牌加 Unplayable）走本批新增的 `RegisterCardAfflictionSource`；Power 自己在玩家侧回合末移除；分支 `MOVE_BRANCH` 只读 `_usedEntangle` |
 | 一 | ~~`Hexaghost`~~（已适配 §2.42；§4.4 原先记的「需要 AfterSideTurnEnd」是误判） | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
 | 一 | ~~`Guardian`~~（已适配 §2.43 材料 ＋ §2.44 本体） | 分支 `OFFENSIVE_BRANCH`（纯读取）＋ 七个行动 ＋ `ModeShiftPower` 的立即／延迟切换 ＋ `SharpHidePower` ＋ `BeforeDeath` 补刀。`SetMoveImmediate` 式强制改行动用核心既有的 `ForceMonsterMove`（publicizer 直呼），不需要新登记点 |
 | 一 | ~~`Lagavulin`~~（已适配 §2.39） | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |

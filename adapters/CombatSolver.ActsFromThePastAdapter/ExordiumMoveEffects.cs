@@ -3,6 +3,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
+using MegaCrit.Sts2.Core.Combat;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Simulation;
 using MegaCrit.Sts2.Core.Entities.Cards;
@@ -18,8 +19,8 @@ namespace CombatSolver.ActsFromThePastAdapter;
 /// 每条实现逐行对应 AFTP 源码里那个 <c>MoveState</c> 的回调，顺序也一致。
 ///
 /// **只登记能完整建模的行动。** 行动里含未镜像的第三方 Power、或会让怪物离场的语义
-/// （例如 Looter 的 ESCAPE、SlaverRed 的 Entangle）时不登记：求解器会给这个意图打红字
-/// 说「这里没镜像」，而不是静默当成空操作。
+/// （例如 Looter 的 ESCAPE）时不登记：求解器会给这个意图打红字说「这里没镜像」，
+/// 而不是静默当成空操作。
 /// </remarks>
 internal static class ExordiumMoveEffects
 {
@@ -41,6 +42,10 @@ internal static class ExordiumMoveEffects
     /// <summary>GremlinWizard 的充能上限（AFTP <c>ChargeLimit</c>）。</summary>
     internal static int GremlinWizardChargeLimit { get; private set; } = 3;
 
+    /// <summary>AFTP 自己的 <c>EntangledPower</c>（强盗红 ENTANGLE 撒的网）与它挂的病症。</summary>
+    private static Type _entangledPowerType = null!;
+    private static Type _entangledOriginalType = null!;
+
     private static readonly string[] MonsterTypes =
     [
         "AcidSlimeMedium",
@@ -52,6 +57,7 @@ internal static class ExordiumMoveEffects
         "GremlinNob",
         "GremlinWizard",
         "SlaverBlue",
+        "SlaverRed",
         "Cultist",
         "Sentry",
         "LouseGreen",
@@ -86,6 +92,17 @@ internal static class ExordiumMoveEffects
         // 小鬼盾兵的 Protect 要把自己那条私有 RNG 流搬进预测状态，核对该访问点还在。
         MonsterRngSupport.VerifyShape();
         GremlinWizardChargeLimit = AfpReflection.RequireConst("GremlinWizard", "ChargeLimit", 3);
+        // 强盗红 ENTANGLE 的两个第三方模型：Power 负责「在时给攻击牌挂病症、回合末自己消失」，
+        // 病症负责给牌加 Unplayable 关键词。四个钩子逐条核对，改了就往昔之章的版本需要重新对。
+        _entangledPowerType = AfpReflection.RequireType("ActsFromThePast.EntangledPower");
+        _entangledOriginalType = AfpReflection.RequireType("ActsFromThePast.EntangledOriginal");
+        _ = AfpReflection.RequireOverride("EntangledPower", "AfterApplied", 2);
+        _ = AfpReflection.RequireOverride("EntangledPower", "AfterCardEnteredCombat", 1);
+        _ = AfpReflection.RequireOverride("EntangledPower", "AfterSideTurnEnd", 3);
+        _ = AfpReflection.RequireOverride("EntangledPower", "AfterRemoved", 1);
+        _ = AfpReflection.RequireOverride("EntangledOriginal", "CanAfflictCardType", 1);
+        _ = AfpReflection.RequireOverride("EntangledOriginal", "AfterApplied", 0);
+        _ = AfpReflection.RequireOverride("EntangledOriginal", "BeforeRemoved", 0);
     }
 
     public static void RegisterAll()
@@ -127,6 +144,19 @@ internal static class ExordiumMoveEffects
         // --- 强盗 / 邪教徒 / 哨卫 ---
         // SlaverBlue.Rake：攻击 + PowerCmd.Apply<WeakPower>(target, WeakAmount, Creature, null)
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlaverBlue", "RAKE", SlaverBlueRake);
+        // SlaverRed.Entangle：给每个活着的目标挂 1 层 AFTP 自己的 EntangledPower（攻击牌全变 Unplayable），
+        // 走完再把自己标记成「用过缠网」（分支靠它决定要不要再抽 ENTANGLE）。STAB 是纯攻击。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlaverRed", "ENTANGLE", SlaverRedEntangle);
+        // SlaverRed.Scrape：攻击 + PowerCmd.Apply<VulnerablePower>(target, VulnerableAmount, Creature, null)
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlaverRed", "SCRAPE", SlaverRedScrape);
+        // EntangledPower 的常规回合末重写：**自己那一方**回合末摘掉自己（玩家侧，即玩家的下一回合结束）。
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("EntangledPower", EntangledPowerTurnEnd);
+        // 它在场时给玩家**所有攻击牌**挂 EntangledOriginal（加 Unplayable），消失时摘掉；
+        // 之后新进入战斗的攻击牌同样处理——这三件事由核心的卡牌病症规范化表达。
+        ThirdPartyAdapterRegistry.RegisterCardAfflictionSource(
+            "EntangledPower",
+            _entangledOriginalType,
+            CardType.Attack);
         // Cultist.Incantation：PowerCmd.Apply<RitualPower>(Creature, RitualAmount, Creature, null)
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Cultist", "INCANTATION", CultistIncantation);
         // Sentry.Bolt：CardPileCmd.AddToCombatAndPreview<Dazed>(targets, Discard, DazedAmount, null)
@@ -181,6 +211,8 @@ internal static class ExordiumMoveEffects
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("JawWorm", "BellowStrength", "BellowBlock", "ThrashBlock");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("GremlinNob", "EnrageAmount");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SlaverBlue", "WeakAmount");
+        // SlaverRed.VulnerableAmount 同样是 AscensionHelper 形式的实例属性（A9+ 2，否则 1）。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SlaverRed", "VulnerableAmount");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("LouseRed", "StrengthAmount");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Sentry", "DazedAmount");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Cultist", "RitualAmount");
@@ -199,6 +231,9 @@ internal static class ExordiumMoveEffects
     private static void RegisterMonsterState()
     {
         ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("GremlinWizard", "_currentCharge");
+        // SlaverRed 的分支 MOVE_BRANCH 只看 _usedEntangle（只有 ENTANGLE 行动会置位），必须随分支 Fork、
+        // 进状态指纹，否则「已经撒过网」和「还没撒过」的同一只怪会被当成同一个状态。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("SlaverRed", "_usedEntangle");
         // Looter 的分支 MUG_BRANCH 只看 _mugCount（Mug／Lunge 各 +1），必须随分支 Fork、
         // 进状态指纹，否则同一场里「已经偷过两次」的个体和没偷过的会被当成同一个状态。
         ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Looter", "_mugCount");
@@ -390,6 +425,64 @@ internal static class ExordiumMoveEffects
         killedOwner = false;
         Debuff<WeakPower>(simulator, combat, player, combat.GetMonsterStaticInt(move.Owner, "WeakAmount"), move);
         return true;
+    }
+
+    /// <summary>
+    /// SlaverRed.Entangle：给每个活着的目标挂 1 层 AFTP 自己的 <c>EntangledPower</c>（它会给玩家所有攻击牌
+    /// 挂上 <c>EntangledOriginal</c>，即 Unplayable），循环走完再把自己标记成「用过缠网」——顺序照源码，
+    /// 分支靠这个标记决定还能不能抽到 ENTANGLE。
+    /// </summary>
+    private static bool SlaverRedEntangle(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        // 源码：foreach (target in targets.Where(IsAlive)) PowerCmd.Apply<EntangledPower>(target, 1m, Creature, null);
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyPower(_entangledPowerType, player, 1, move.Owner);
+        combat.SetMonsterBool(move.Owner, "_usedEntangle", true);
+        return true;
+    }
+
+    /// <summary>SlaverRed.Scrape：攻击之后给每个活着的目标 <c>VulnerableAmount</c> 层易伤。</summary>
+    private static bool SlaverRedScrape(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        Debuff<VulnerablePower>(
+            simulator,
+            combat,
+            player,
+            combat.GetMonsterStaticInt(move.Owner, "VulnerableAmount"),
+            move);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>EntangledPower.AfterSideTurnEnd</c>（常规、非 Late）：**自己那一方**回合末摘掉自己。
+    /// 玩家侧的 EntangledPower 因此在玩家的下一个回合结束时消失；牌上的 <c>EntangledOriginal</c>
+    /// 由核心的卡牌病症规范化在同一个时点清掉（对应源码的 <c>AfterRemoved</c>）。
+    /// </summary>
+    private static void EntangledPowerTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = simulator;
+        _ = participants;
+        if (side == power.Owner.Side)
+            combat.SetPowerAmount(power, 0);
     }
 
     private static bool CultistIncantation(

@@ -1,5 +1,25 @@
 # CombatSolver 测试清单
 
+## 未发布：第一幕最后一只强盗红（`SlaverRed`）与本体新增「Power 驱动的卡牌病症」入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  **无编译器警告**）；已部署产物反编译核对：核心里 `ThirdPartyAdapterRegistry.CardAfflictionSource` /
+  `RegisterCardAfflictionSource`（重复登记检查 + 类型检查）/ `CardAfflictionSources`、
+  `CanonicalModels.Affliction(Type)`（按 `Type` 查 `ModelDb` 并缓存）、`SimulatedCombatState` 的
+  `NormalizeCardAfflictions`（第三方条目接在原版 Hex／Tangled／Ringing 链之后，空登记表时零额外工作）、
+  `HasActivePowerNamed` / `ApplyThirdPartyCardAffliction` / `ClearThirdPartyCardAffliction`；
+  适配里 `ExordiumBranchResolvers.SlaverRed`（三档判定 + 一次 `NextInt(100)`，进 `PureSelectors` 与
+  `RegisteredMonsterTypes`）、`SlaverRedEntangle` / `SlaverRedScrape` / `EntangledPowerTurnEnd`、
+  `RegisterCardAfflictionSource("EntangledPower", EntangledOriginal, CardType.Attack)`、
+  `RegisterSideTurnEndPower("EntangledPower", …)`、`_usedEntangle` 状态成员与 `VulnerableAmount` 静态成员、
+  `EntangledPower` 四条与 `EntangledOriginal` 三条 `RequireOverride` 全部在场；
+  部署产物与工作区构建哈希逐字节相同（核心 6,301,184 B、AFTP 116,736 B）。
+- 顺手清掉核心一条既有告警（不改语义）：`MonsterMoveSemantics` 的
+  `TryGetMonsterMoveAttackResults` 出参是 `out ...?`，调用点补 `!`（原为 CS8602）。
+- **未验证**：没有在游戏内打过「强盗红」遭遇，缠网期间「所有攻击牌不可打出」（含抽到／新生成的攻击牌）、
+  玩家侧回合末摘掉缠网与病症、神器挡下缠网、以及分支三档抽样都**未实机验证**；也没有差分夹具
+  （AFTP 程序集无法在无头测试进程里加载，全部 AFTP 批次同理）。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第一幕精英守护者（`Guardian`）本体（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，**无编译器警告**）；

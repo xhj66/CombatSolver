@@ -1,4 +1,5 @@
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.MonsterMoves;
@@ -235,6 +236,66 @@ internal static class ThirdPartyAdapterRegistry
         string powerTypeName,
         out SideTurnStartPowerHandler handler)
         => SideTurnStartPowerTable.TryGetValue(powerTypeName, out handler!);
+
+    /// <summary>
+    /// 一条「第三方 Power 在玩家身上 ⇒ 给牌挂某个病症」的登记项。
+    /// <paramref name="CardType"/> 为 <c>null</c> 表示对任意牌生效，否则只对该类型的牌生效。
+    /// </summary>
+    public readonly record struct CardAfflictionSource(
+        string PowerTypeName,
+        Type AfflictionType,
+        CardType? CardType);
+
+    private static readonly List<CardAfflictionSource> CardAfflictionSourceTable = [];
+
+    /// <summary>
+    /// 登记第三方 Power 的「在玩家身上时给牌挂病症／消失时摘掉病症」语义，对应核心为原版
+    /// <c>TangledPower</c>／<c>HexPower</c>／<c>RingingPower</c> 写死的那套规范化。
+    /// </summary>
+    /// <remarks>
+    /// 原版这条语义在 <c>SimulatedCombatState.NormalizeCardAfflictions</c> 里按类型写死，它同时负责三件事：
+    /// Power 在时给「还没有病症」的牌挂上、之后**新进入战斗**的牌也挂上、Power 消失后把病症清掉
+    /// （原版那三个 Power 的 <c>AfterApplied</c>／<c>AfterCardEnteredCombat</c>／<c>AfterRemoved</c>
+    /// 三个钩子在核心都没有通用分发点，全部由这套规范化等价表达）。第三方 Power 落在写死的名单外，
+    /// 不登记的话这个 Power 在预测里就是**空的**：整回合的可打出性都会算错，而数值不会报错。
+    ///
+    /// <para>
+    /// 登记方要自己复核三件事与源码一致：① 施加时给哪些牌挂（本入口用 <paramref name="cardType"/> 表达
+    /// 「只给某一类牌」，挂的层数固定 1，与源码的 <c>CardCmd.Afflict&lt;T&gt;(card, 1m)</c> 一致）；
+    /// ② 之后进入战斗的牌同样处理；③ Power 消失后病症被清掉。Power 自身的移除时机由登记方在
+    /// <see cref="RegisterSideTurnEndPower"/> 一类的入口里表达——本入口只负责「Power 在不在 ⇒ 牌上的病症」。
+    /// </para>
+    ///
+    /// <para>
+    /// 病症实例由核心按 <paramref name="afflictionType"/> 从 <c>ModelDb</c> 取规范实例再复制（外部程序集
+    /// 拿不到泛型入口）；取不到就在那一刻明确失败，而不是当成没登记。
+    /// </para>
+    /// </remarks>
+    public static void RegisterCardAfflictionSource(
+        string powerTypeName,
+        Type afflictionType,
+        CardType? cardType = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(powerTypeName);
+        ArgumentNullException.ThrowIfNull(afflictionType);
+        if (!typeof(AfflictionModel).IsAssignableFrom(afflictionType))
+        {
+            throw new ArgumentException(
+                $"{afflictionType.FullName} 不是 AfflictionModel 类型。",
+                nameof(afflictionType));
+        }
+        if (CardAfflictionSourceTable.Any(entry =>
+                string.Equals(entry.PowerTypeName, powerTypeName, StringComparison.Ordinal)
+                && entry.AfflictionType == afflictionType))
+        {
+            throw new InvalidOperationException(
+                $"{powerTypeName} 已经登记过病症 {afflictionType.FullName} 了。");
+        }
+        CardAfflictionSourceTable.Add(new CardAfflictionSource(powerTypeName, afflictionType, cardType));
+    }
+
+    /// <summary>已登记的「Power ⇒ 卡牌病症」条目（按登记顺序派发；空表示核心不做额外规范化）。</summary>
+    public static IReadOnlyList<CardAfflictionSource> CardAfflictionSources => CardAfflictionSourceTable;
 
     /// <summary>
     /// 第三方怪物行动的「攻击结算之后」部分：拿得到这次行动的**全部伤害结果**。

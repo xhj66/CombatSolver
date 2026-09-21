@@ -99,7 +99,7 @@ internal static class MonsterMoveSemantics
                 move.Move.Id,
                 out ThirdPartyAdapterRegistry.MonsterMoveAttackResultHandler? attackResultHandler))
         {
-            attackResultHandler(simulator, combat, move, attackResults);
+            attackResultHandler!(simulator, combat, move, attackResults);
             if (simulator.HasPendingChoice)
                 return simulatedPlayer.IsDead;
         }

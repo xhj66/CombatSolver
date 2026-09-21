@@ -1484,11 +1484,25 @@ internal sealed partial class SimulatedCombatState
 
     public void NormalizeCardAfflictions(CombatPredictionSimulator simulator)
     {
+        // 第三方登记项（目前只有往昔之章的缠网）：Power 在不在**每个玩家先算一次**，逐牌循环里不再重复扫描
+        // Power 列表。没有登记项时不分配、不做任何额外工作（与加这个入口之前完全一样）。
+        IReadOnlyList<ThirdPartyAdapterRegistry.CardAfflictionSource> thirdPartySources =
+            ThirdPartyAdapterRegistry.CardAfflictionSources;
+        bool[]? thirdPartyActive = null;
         foreach (Player player in Players)
         {
             int hex = GetAmount<HexPower>(player.Creature);
             int tangled = GetAmount<TangledPower>(player.Creature);
             int ringing = GetAmount<RingingPower>(player.Creature);
+            if (thirdPartySources.Count > 0)
+            {
+                thirdPartyActive ??= new bool[thirdPartySources.Count];
+                for (int index = 0; index < thirdPartySources.Count; index++)
+                {
+                    thirdPartyActive[index] =
+                        HasActivePowerNamed(player.Creature, thirdPartySources[index].PowerTypeName);
+                }
+            }
             foreach (PredictedCard card in simulator.State.GetPlayerCombatState(player).AllCards)
             {
                 if (card.Preview.Affliction == null)
@@ -1499,6 +1513,8 @@ internal sealed partial class SimulatedCombatState
                         simulator.Afflict<Entangled>(card, 1);
                     else if (ringing > 0)
                         simulator.Afflict<Ringing>(card, 1);
+                    else if (thirdPartyActive != null)
+                        ApplyThirdPartyCardAffliction(simulator, card, thirdPartySources, thirdPartyActive);
                 }
                 else if ((hex <= 0 && card.Preview.Affliction is Hexed)
                          || (tangled <= 0 && card.Preview.Affliction is Entangled)
@@ -1506,9 +1522,75 @@ internal sealed partial class SimulatedCombatState
                 {
                     card.ClearAffliction();
                 }
+                else if (thirdPartyActive != null)
+                {
+                    ClearThirdPartyCardAffliction(card, thirdPartySources, thirdPartyActive);
+                }
             }
         }
         NormalizePowerCardState(simulator);
+    }
+
+    /// <summary>
+    /// 玩家身上是否有某个类型名（第三方 Power）且层数大于 0 的 Power。读的是模拟状态的 Power 列表
+    /// （根捕获之后实机 Power 也已克隆进来），与 <c>GetAmount&lt;T&gt;</c> 同一份来源。
+    /// </summary>
+    private bool HasActivePowerNamed(Creature owner, string powerTypeName)
+    {
+        foreach (PowerModel power in EffectivePowers())
+        {
+            if (power.Amount > 0
+                && ReferenceEquals(power.Owner, owner)
+                && string.Equals(power.GetType().Name, powerTypeName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 第三方登记项里第一条「Power 激活且牌型相符」的病症挂到这张牌上（源码是
+    /// <c>CardCmd.Afflict&lt;T&gt;(card, 1m)</c>，层数固定 1；已被别的病症占住的牌不改）。
+    /// </summary>
+    private static void ApplyThirdPartyCardAffliction(
+        CombatPredictionSimulator simulator,
+        PredictedCard card,
+        IReadOnlyList<ThirdPartyAdapterRegistry.CardAfflictionSource> sources,
+        bool[] active)
+    {
+        for (int index = 0; index < sources.Count; index++)
+        {
+            if (!active[index])
+                continue;
+            if (sources[index].CardType is { } requiredType && card.Preview.Type != requiredType)
+                continue;
+            simulator.Afflict(
+                CanonicalModels.Affliction(sources[index].AfflictionType).ToMutable(),
+                card,
+                1);
+            return;
+        }
+    }
+
+    /// <summary>
+    /// 牌上的病症来自某个第三方登记项、而那个 Power 已经不在了：按源码 <c>AfterRemoved</c> 的语义摘掉它。
+    /// </summary>
+    private static void ClearThirdPartyCardAffliction(
+        PredictedCard card,
+        IReadOnlyList<ThirdPartyAdapterRegistry.CardAfflictionSource> sources,
+        bool[] active)
+    {
+        AfflictionModel? current = card.Preview.Affliction;
+        if (current is null)
+            return;
+        for (int index = 0; index < sources.Count; index++)
+        {
+            if (active[index] || sources[index].AfflictionType != current.GetType())
+                continue;
+            card.ClearAffliction();
+            return;
+        }
     }
 
     public void RemoveHexPower(CombatPredictionSimulator simulator, Creature owner)

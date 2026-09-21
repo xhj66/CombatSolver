@@ -511,6 +511,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterSideTurnStartPower(Power 类型名, handler)` | 第三方 Power 重写的 `BeforeSideTurnStart`。派发在 `TurnStartPowerSupport.TriggerBeforeSideTurnStart` 里、原版那些按类型写死的块之后；没登记的类型与原来一样什么都不做，见下 |
 | `BeforeSideTurnEndMirrors.RegisterVeryEarly(模型类型名, handler)` | 第三方模型重写的 `BeforeSideTurnEndVeryEarly`（回合末的**最早**阶段）。与 `RegisterEarly` 分成两个入口是有意的：阶段顺序本身是语义的一部分（往昔之章的睡眠 Power 必须在这之前把金属化摘掉，否则同一回合末会多给一次格挡） |
 | `RegisterStolenCardPower(Power 类型名, hasStolenCard)` | 第三方**偷牌** Power：终局的「未追回战利品」与「持有者死亡时核销」原先只认原版 `SwipePower`（偷牌）与 `ThieveryPower`／`HeistPower`（偷金币）。不登记的话，被偷的牌会一直算作丢失（界面与排序都会错）；`hasStolenCard(simulator, power)` 由登记方回答「这个实例现在扣着牌吗」 |
+| `RegisterCardAfflictionSource(Power 类型名, 病症 Type, 牌型?)` | 第三方 Power 的「在玩家身上时给某类牌挂**病症**、消失时摘掉、之后进入战斗的牌同样处理」，对应核心为原版 `TangledPower`／`HexPower`／`RingingPower` 写死的那套规范化。挂的层数固定 1（与源码的 `CardCmd.Afflict<T>(card, 1m)` 一致）；Power 自身的移除时机另在 `RegisterSideTurnEndPower` 一类的入口表达，见下 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
 #### 第三方分支状态的选择函数：默认**不在预测里调用**
@@ -688,6 +689,40 @@ ThirdPartyAdapterRegistry.RegisterSideTurnEndPower(
 3. **没登记就不做任何事**：这条入口是**纯新增**——未登记的类型与加这个入口之前完全一样，
    因此它不会改变原版或既有第三方内容的行为。**仍然封闭**的是玩家侧非 Power 的常规回合末特化
    （`BeforeSideTurnEnd` 系列之外的抽牌/手牌清理那一批）与 `BeforeSideTurnStart`（见第 6 节）。
+
+#### 第三方 Power 驱动的卡牌病症（`RegisterCardAfflictionSource`）
+
+原版有三个 Power 会给玩家的**牌**挂病症：`TangledPower`（缠绕，攻击牌 +1 费）、`HexPower`（虚无）、
+`RingingPower`（鸣响）。它们的三个钩子——`AfterApplied`（给当前所有受影响牌挂上）、
+`AfterCardEnteredCombat`（之后**新进入战斗**的牌也挂上）、`AfterRemoved`（Power 没了就摘掉）——
+在求解器里**都没有通用分发点**，核心是用一套按类型写死的规范化
+（`SimulatedCombatState.NormalizeCardAfflictions`）等价表达的：Power 在 ⇒ 牌上没有病症就挂上，
+Power 不在 ⇒ 牌上是这个病症就摘掉。第三方 Power 落在写死的名单外，效果就是**这个 Power 在预测里是空的**：
+数值不报错，但整回合的可打出性都算错（往昔之章的 `EntangledPower` 就是这一类：它在场时所有攻击牌
+带 `Unplayable`）。
+
+入口只收「Power 类型名 + 病症 `Type` + 可选的牌型」，三件事一次表达完：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterCardAfflictionSource(
+    "你的Power类型名",
+    typeof(你的Affliction),      // 必须是 AfflictionModel 子类
+    CardType.Attack);            // null 表示对任意牌生效；源码只对攻击牌就写 Attack
+// 别忘了 Power 自己在什么时机消失（例如源码的 AfterSideTurnEnd）：
+ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("你的Power类型名", 你的回合末处理器);
+```
+
+三条纪律：
+
+1. **先复核三个钩子与源码一致**再登记：施加时给哪些牌挂、之后进入战斗的牌同样处理、Power 消失后摘掉。
+   挂的层数固定 1（源码就是 `CardCmd.Afflict<T>(card, 1m)`）；源码只给某一类牌挂就用第三个参数表达，
+   不要靠「反正 `CanAfflictCardType` 会挡」——那是一次静默的多挂／漏挂。
+2. **Power 的移除时机不在这个入口里**。它只回答「Power 在不在 ⇒ 牌上有没有这个病症」，
+   所以「回合末摘掉自己」要另外登记（上一条），否则病症会一直挂着，玩家整场都打不出攻击牌。
+3. **病症实例由核心按 `Type` 从 `ModelDb` 取规范实例再复制**（外部程序集拿不到泛型入口）。
+   自检里要确认这个病症类型确实存在于对方程序集，并且它确实是 `AfflictionModel`。
+
+**仍然是纯新增**：没有登记项的进程里，这段规范化与加这个入口之前逐字节一致（不分配、不做额外扫描）。
 
 #### 回合开始的 `BeforeSideTurnStart`
 
@@ -937,8 +972,8 @@ ThirdPartyAdapterRegistry.RegisterMonsterAttackValues(
 | `CombatPredictionSimulator.SupportsManualCardChoiceContinuation` / `PredictionStateStore.SupportsManualCardChoiceContinuation` | 自身选牌续执行覆盖清单中的41张原版单人卡，要求无附魔/污染、手动单次执行；已生成的请求、候选、历史与活动格挡计数有显式复制合同，不能据此接纳第三方选牌委托；拒绝不透明外部状态以及所有 `IPredictionForkBoundary` 状态（包括模型状态适配器包装）。不符合时保留原完整回放，已有第三方战斗支持范围不因此扩大；无注册入口 | 封闭性能特化 |
 | `CombatPredictionSimulator.ExecutionContinuation` / `ExecutionDispatchScope` | 回合来源、抽牌、Hook及嵌套子出牌使用内部纯数据帧。未知派发未确认协议、未知历史、不可复制事务或不透明StateStore时拒绝捕获，继续既有完整回放；不会跳过游戏效果，也不把既有第三方登记等同于可复制回调。原Fork稳定断言保持；没有外部续跑注册入口 | 封闭性能特化 |
 | `PotionChoiceContinuation.Supports` | 9种原版手动选牌药水的稳定前缀特化；第三方类型与通过PotionChoiceMirrors登记覆盖原版选择者继续完整重放，无额外注册入口。普通Fork/StateStore断言保持，不能用此入口接纳不透明回调或事务 | 封闭性能特化 |
-| `SimulatedCombatState.AfterCardEnteredCombat` → `GhostSeedMirrors` | 幽灵种子按本地基础牌标签处理真实入场；已捕获根卡的关键词不会由后续归一化重新改写，入场镜像仍为原版封闭派发 | 原版封闭派发 |
-| `SimulatedCombatState.ApplyWithBeforeApplied` / `AfterCardEnteredCombat` → `PhantomBladesPowerMirrors` | 幻影之刃的首次施加和卡牌入场直接派发精确镜像体，尚未提供通用 Power.AfterApplied 注册入口；其他来源不得依赖全局归一化重新赋予关键词 | 原版封闭派发 |
+| `SimulatedCombatState.AfterCardEnteredCombat` → `GhostSeedMirrors` | 幽灵种子按本地基础牌标签处理真实入场；已捕获根卡的关键词不会由后续归一化重新改写，入场镜像仍为原版封闭派发。**第三方 Power 的「新牌入场也挂病症」已开放**：`ThirdPartyAdapterRegistry.RegisterCardAfflictionSource`（§2.13），走的正是这个函数末尾的卡牌病症规范化 | 原版封闭派发；第三方病症已有入口 |
+| `SimulatedCombatState.ApplyWithBeforeApplied` / `AfterCardEnteredCombat` → `PhantomBladesPowerMirrors` | 幻影之刃的首次施加和卡牌入场直接派发精确镜像体，尚未提供通用 Power.AfterApplied 注册入口；其他来源不得依赖全局归一化重新赋予关键词（**卡牌病症**那条「Power 在 ⇒ 挂病症」的规范化是另一条路，入口见 §2.13） | 原版封闭派发 |
 | `CardChoiceSupport.Spec` / `CardChoiceSpec.IsImplicitAllSelection` | 原版固定数量选择在候选不足或恰好全部时，按候选顺序生成唯一计划。第三方使用原版隐式全选规则时必须设置该标记；普通手动确认选择保持自己的顺序策略，Runtime对隐式选择严格核对实例和顺序 | 原版特化；第三方选择已有入口 |
 | `CombatBeamSolver.CaptureEnergyRefundWindow` / `StrategicEffectContext.RecurringEnergyGain` | 原版环绕轨道按花费余数、自动化按剩余抽牌数估计未来返能，包含自然抽牌；与可消费能量缺口共用上限。第三方仍通过 §2.2 登记，详见[估值上下文](third-party-strategic-effects.md) | 原版特化；第三方估值已有入口 |
 | `RelicCounterCatalog` / `SimulatedCombatState.ReadRelicCounter` | 战斗末卡数仅覆盖已核对的十种原版计数；第三方显示计数只列出“尚未适配”，不会被自动当作跨战斗目标。见[计数策略说明](relic-counters.md) | 精确原版适配 |

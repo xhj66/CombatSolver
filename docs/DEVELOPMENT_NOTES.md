@@ -12,6 +12,20 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第一幕最后一只强盗红（`SlaverRed`）与本体新增「Power 驱动的卡牌病症」入口（2026-09-21）
+
+- 新增登记入口 `ThirdPartyAdapterRegistry.RegisterCardAfflictionSource(Power 类型名, 病症 Type, 牌型?)`：
+  把核心为原版 `TangledPower`／`HexPower`／`RingingPower` 写死的那套卡牌病症规范化
+  （Power 在 ⇒ 没病症的牌挂上、新进入战斗的牌同样处理、Power 没了 ⇒ 摘掉）对第三方开放；
+  病症实例由核心按 `Type` 从 `ModelDb` 取规范实例再复制（`CanonicalModels.Affliction(Type)`）。
+  没有登记项的进程里这段规范化与之前逐字节一致（不分配、不做额外扫描）。
+- `SlaverRed`：分支 `MOVE_BRANCH`（一次 `NextInt(100)` 的三档判定，声明为纯读取）、`ENTANGLE`（给活着的目标挂
+  1 层 `EntangledPower`，再置 `_usedEntangle`）、`SCRAPE`（攻击 + `VulnerableAmount` 层易伤）、
+  `EntangledPower` 的玩家侧回合末移除；缠网给所有攻击牌加 `Unplayable` 的关键词行为由病症自己的
+  `AfterApplied`／`BeforeRemoved` 表达（核心的 `Afflict`／`ClearAffliction` 本来就调它们）。第一幕至此 20/20。
+- 顺手清掉核心一条既有告警（不改语义）：`MonsterMoveSemantics` 里 `out` 可空出参的调用点补 `!`。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.45，登记纪律见
+  [第三方 Mod 适配手册](THIRD_PARTY_ADAPTERS.md) §2.13。
 ## 未发布：第一幕精英守护者（`Guardian`）本体（2026-09-21）
 
 - 分支 `OFFENSIVE_BRANCH`（`!_isOpen` ⇒ CLOSE_UP，否则按行动历史里最后一个行动查表，不抽 RNG）声明为纯读取；
