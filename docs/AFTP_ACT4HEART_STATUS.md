@@ -763,6 +763,25 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 2 张 Dazed 的入堆位置都**未实机验证**；也没有最小差分夹具。`OnArmorBreak` 那条路径本轮只会显式失败。
 ---
 
+### 2.29 AFTP `MalleablePower`（蛇草的「可塑」）与本体新增 `AfterAttackMirrors.Register(Type, …)`
+
+蛇草（`SnakePlant`）本体的分支与 `SPORES` 下一批接；这一批先把它的 Power 镜像做完，因为那个 Power
+需要一个**本体现在还没有的入口**：`AfterAttackMirrors` 原来只有泛型注册，第三方类型登记不进去。
+
+| 部位 | 源码（`ActsFromThePast.MalleablePower`） | 适配 |
+| --- | --- | --- |
+| 私有状态 | `_pendingBlock`（decimal）：每次挨打累加、下一次攻击或自己方回合末清空 | `MalleablePendingBlockState`（`IPredictionStateForkable`，随 Fork `MemberwiseClone`）＋ `PowerHiddenStateMirrors.RegisterRootCapture`（克隆会丢私有字段，根捕获时把实机值读进来）＋ `Register(…, "pendingBlock", …)` 把它写进指纹，只差累计值的两条分支不会被去重 |
+| `AfterDamageReceived` | 持有者吃到未被格挡的 `Move` 伤害（非 `Unpowered`）且还活着 → `_pendingBlock += Amount`，然后自己层数 +1 | `AfterDamageReceivedMirrors.Register(类型, …)`；层数 +1 用效果槽的 `SetPowerAmount`（**不是** `ApplyPower`：后者会跑 `AfterApplied`，把 `BaseAmount` 重写成新层数，回滚就错了） |
+| `AfterAttack` | 只要累计值 > 0：换成 `Unpowered` 格挡并清零（**对「是谁打的」不加条件**，任何攻击命令都会兑现） | 新增 `AfterAttackMirrors.Register(Type, handler)`（本体的第三方入口）＋ `MalleableAfterAttack` |
+| `AfterSideTurnEnd`（**非 Late**） | 自己那一方回合末：先兑现剩余累计值，再把层数回滚到施加时的 `BaseAmount` | `RegisterSideTurnEndPower("MalleablePower", …)`；回滚读 `DynamicVars["BaseAmount"]`（AFTP 的 `AfterApplied` 会在实机侧把它设成施加时的层数，规范默认值同样是 3，蛇草只在开场施加一次） |
+
+自检：`RequireType("ActsFromThePast.MalleablePower")` ＋ `RequireOverride` 钉住三个重写（6／2／3 参），
+并用反射取 `_pendingBlock` 字段，字段不在就**拒绝登记**。
+
+**未验证**：没有在游戏内打过「蛇草」遭遇（本体还没适配），可塑的累加／兑现／回滚三条都**未实机验证**；
+也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1100,7 +1119,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
 | 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | `ShelledParasite` | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
-| 二 | `SnakePlant` | `MalleablePower`：`AfterDamageReceived`（累加 `_pendingBlock` 并 +1 层）+ `AfterAttack`（给格挡）+ **常规回合末**清零与回滚层数（入口已就绪）；私有 `_pendingBlock` 要进 `PowerHiddenStateMirrors` |
+| 二 | `SnakePlant` | **Power 镜像已完成**（§2.29）；本体还差 `MOVE_BRANCH`（只读，可声明纯读取）与 `SPORES`（2 破甲 + 2 虚弱） |
 | 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
 | 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |

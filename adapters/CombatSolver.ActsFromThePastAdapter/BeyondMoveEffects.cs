@@ -1,3 +1,4 @@
+using System.Reflection;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
@@ -6,6 +7,7 @@ using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
+using CombatSolver.Engine.InCombat.Mirrors.Hooks.Attack;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Damage;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Death;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.TurnEnd;
@@ -38,6 +40,18 @@ internal static class BeyondMoveEffects
 
     /// <summary>AFTP 自己的 <c>PlatedArmorPower</c>（与原版 <c>PlatingPower</c> 是两个类型）。</summary>
     private static Type _platedArmorType = null!;
+
+    /// <summary>AFTP 自己的 <c>MalleablePower</c>（蛇草挂的那一个）。</summary>
+    private static Type _malleableType = null!;
+
+    /// <summary>它的私有 <c>_pendingBlock</c>：每次挨打累加，下一次攻击或回合末清空。</summary>
+    private static FieldInfo _malleablePendingBlock = null!;
+
+    /// <summary>读实机／影子实例上的 <c>_pendingBlock</c>（越界或字段缺失都显式失败）。</summary>
+    internal static int ReadMalleablePendingBlock(PowerModel power)
+        => _malleablePendingBlock.GetValue(power) is decimal value
+            ? (int)value
+            : throw new InvalidOperationException("MalleablePower._pendingBlock 不是 decimal。");
 
     /// <summary>Deca 的「保护之方」给每个存活队友的格挡与镀甲层数。</summary>
     private static int _decaProtectBlock;
@@ -89,6 +103,15 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("PlatedArmorPower", "AfterDamageReceived", 6);
         _decaProtectBlock = AfpReflection.RequireConst("Deca", "ProtectBlock", 16);
         _decaProtectPlatedArmor = AfpReflection.RequireConst("Deca", "ProtectPlatedArmorAmount", 3);
+        _malleableType = AfpReflection.RequireType("ActsFromThePast.MalleablePower");
+        _ = AfpReflection.RequireOverride("MalleablePower", "AfterDamageReceived", 6);
+        _ = AfpReflection.RequireOverride("MalleablePower", "AfterAttack", 2);
+        _ = AfpReflection.RequireOverride("MalleablePower", "AfterSideTurnEnd", 3);
+        _malleablePendingBlock = _malleableType.GetField(
+                "_pendingBlock",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "ActsFromThePast.MalleablePower._pendingBlock 不存在，往昔之章版本可能已变动。");
     }
 
     public static void RegisterAll()
@@ -187,6 +210,104 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("PlatedArmorPower", PlatedArmorStart);
         BeforeSideTurnEndMirrors.RegisterEarly(_platedArmorType, PlatedArmorTurnEnd);
         AfterDamageReceivedMirrors.Register(_platedArmorType, PlatedArmorDamageReceived);
+
+        // --- AFTP MalleablePower（蛇草的「可塑」；蛇草本体下一批接） ---
+        // 它的私有 _pendingBlock 会在克隆时丢掉，所以按心脏无敌那套：根捕获把实机值搬进预测状态，
+        // 并登记一个指纹槽（只在累计值上不同的两条分支否则会被去重掉一条）。
+        AfterDamageReceivedMirrors.Register(_malleableType, MalleableDamageReceived);
+        AfterAttackMirrors.Register(_malleableType, MalleableAfterAttack);
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("MalleablePower", MalleableSideTurnEnd);
+        PowerHiddenStateMirrors.RegisterRootCapture(
+            _malleableType,
+            (simulator, clone, original) => _ = simulator.StateStore.GetReadOnly(
+                clone,
+                () => new MalleablePendingBlockState(original)));
+        PowerHiddenStateMirrors.Register(
+            _malleableType,
+            "pendingBlock",
+            static (simulator, power) => simulator.StateStore
+                .Peek(power, () => new MalleablePendingBlockState(power))
+                .PendingBlock);
+    }
+
+    /// <summary>
+    /// AFTP <c>MalleablePower.AfterDamageReceived</c>：持有者吃到未被格挡的 <c>Move</c> 伤害（非
+    /// <c>Unpowered</c>）且还活着时，把**当前层数**累加进 <c>_pendingBlock</c>，然后自己的层数 +1。
+    /// </summary>
+    private static void MalleableDamageReceived(AbstractModel model, AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner
+            || context.Result.UnblockedDamage <= 0
+            || !context.Props.HasFlag(ValueProp.Move)
+            || context.Props.HasFlag(ValueProp.Unpowered)
+            || context.Simulator.State.GetCreature(power.Owner).CurrentHp <= 0)
+        {
+            return;
+        }
+        ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("可塑缺少可写的预测状态。");
+        MalleablePendingBlockState state = context.Simulator.StateStore
+            .Get(power, () => new MalleablePendingBlockState(power));
+        state.PendingBlock += power.Amount;
+        effects.SetPowerAmount(power, power.Amount + 1);
+    }
+
+    /// <summary>
+    /// AFTP <c>MalleablePower.AfterAttack</c>：只要还有累计值就把它们换成 <c>Unpowered</c> 格挡并清零。
+    /// </summary>
+    /// <remarks>源码对「是谁打的」不加任何条件——任何一次攻击命令都会把它兑现，这里照抄。</remarks>
+    private static void MalleableAfterAttack(AbstractModel model, AfterAttackMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        MalleablePendingBlockState state = context.Simulator.StateStore
+            .Get(power, () => new MalleablePendingBlockState(power));
+        if (state.PendingBlock <= 0)
+            return;
+        context.Simulator.GainBlock(power.Owner, state.PendingBlock, ValueProp.Unpowered);
+        state.PendingBlock = 0;
+    }
+
+    /// <summary>
+    /// AFTP <c>MalleablePower.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末先兑现剩余累计值，
+    /// 再把层数回滚到施加时的 <c>BaseAmount</c>。
+    /// </summary>
+    private static void MalleableSideTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = participants;
+        if (side != power.Owner.Side)
+            return;
+        MalleablePendingBlockState state = simulator.StateStore
+            .Get(power, () => new MalleablePendingBlockState(power));
+        if (state.PendingBlock > 0)
+        {
+            simulator.GainBlock(power.Owner, state.PendingBlock, ValueProp.Unpowered);
+            state.PendingBlock = 0;
+        }
+        int baseAmount = power.DynamicVars["BaseAmount"].IntValue;
+        if (power.Amount == baseAmount)
+            return;
+        ICombatPredictionEffectSink effects = combat as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("可塑缺少可写的预测状态。");
+        effects.SetPowerAmount(power, baseAmount);
+    }
+
+    /// <summary>
+    /// AFTP <c>MalleablePower</c> 的私有 <c>_pendingBlock</c> 在预测里的分支副本。
+    /// </summary>
+    internal sealed class MalleablePendingBlockState : IPredictionStateForkable
+    {
+        public MalleablePendingBlockState(PowerModel power)
+            => PendingBlock = ReadMalleablePendingBlock(power);
+
+        public int PendingBlock { get; set; }
+
+        public object Fork(PredictionForkContext context) => MemberwiseClone();
     }
 
     /// <summary>Deca.Beam：两段攻击由通用攻击循环结算，这里补攻击后塞进弃牌堆底部的 2 张 Dazed。</summary>

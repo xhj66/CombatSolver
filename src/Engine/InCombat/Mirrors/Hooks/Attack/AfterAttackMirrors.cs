@@ -23,10 +23,41 @@ internal static class AfterAttackMirrors
         [typeof(PlayerChoiceContext), typeof(AttackCommand)]);
 
     private static readonly Registry Registry = CreateRegistry();
+    private static readonly object RegistrationLock = new();
+    private static bool _sealed;
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.AfterAttack"/> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 登记须在任何根捕获或首次分发之前完成，之后明确拒绝。未登记的第三方重写会在分发时记一条
+    /// <c>MethodNotMirrored</c>（见 docs/THIRD_PARTY_ADAPTERS.md §2.13）。
+    /// </remarks>
+    public static void Register(Type modelType, Action<AbstractModel, AfterAttackMirrorContext> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("攻击后镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_sealed)
+                throw new InvalidOperationException("AfterAttack 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.Register(Registry, modelType, handler);
+        }
+    }
 
     public static void Invoke(AbstractModel listener, AfterAttackMirrorContext context)
     {
+        Seal();
         Registry.Invoke(listener, context);
+    }
+
+    private static void Seal()
+    {
+        if (Volatile.Read(ref _sealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _sealed, true);
     }
 
     // BeforeAttack stores command-scoped state for these powers. Pending-choice

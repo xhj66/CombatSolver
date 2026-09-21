@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：AFTP `MalleablePower` 镜像与本体 `AfterAttackMirrors.Register(Type, …)`（2026-09-21）
+
+- 为蛇草的「可塑」补齐镜像时发现本体的一个缺口：`AfterAttackMirrors` 原来只有泛型注册，第三方类型登记不
+  进去（而 `MalleablePower.AfterAttack` 是它的核心行为之一）。新增 `AfterAttackMirrors.Register(Type, …)`，
+  与其余镜像表同一套「登记锁 + Seal + 未登记记 MethodNotMirrored」纪律。
+- `MalleablePower` 三钩：`AfterDamageReceived`（累加 `_pendingBlock`、自己层数 +1，用效果槽 `SetPowerAmount`
+  而不是 `ApplyPower`，否则 `AfterApplied` 会把 `BaseAmount` 重写成新层数、回合末回滚就错）、
+  `AfterAttack`（把累计值换成 `Unpowered` 格挡并清零，对「谁打的」不加条件，与源码一致）、
+  `AfterSideTurnEnd`（非 Late，先兑现再回滚到 `BaseAmount`）。私有 `_pendingBlock` 按心脏无敌那套放进
+  预测状态（`IPredictionStateForkable` + 根捕获 + 指纹槽），自检用反射钉住字段与三个重写的形状。
+- 蛇草本体的分支与 `SPORES` 下一批接。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.29。
 ## 未发布：第三幕戴卡（`Deca`）与 AFTP `PlatedArmorPower`（2026-09-21）
 
 - 与 §2.27 的多努同场：`Deca` 的行动在 `BEAM`／`SQUARE_OF_PROTECTION` 之间交替（没有分支），需要两条

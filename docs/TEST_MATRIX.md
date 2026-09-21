@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：AFTP `MalleablePower` 镜像与本体 `AfterAttackMirrors.Register(Type, …)`（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `AfterAttackMirrors.Register(Type, …)`（新的第三方入口，
+  含登记锁与 Seal）在场；适配里 `RequireType("ActsFromThePast.MalleablePower")`、三条 `RequireOverride`
+  （`AfterDamageReceived` 6 参／`AfterAttack` 2 参／`AfterSideTurnEnd` 3 参）、`_pendingBlock` 字段反射、
+  `MalleablePendingBlockState`（`IPredictionStateForkable`）、
+  `PowerHiddenStateMirrors.RegisterRootCapture` / `Register(…, "pendingBlock", …)`、
+  `AfterDamageReceivedMirrors.Register` / `AfterAttackMirrors.Register` /
+  `RegisterSideTurnEndPower("MalleablePower", …)` 全部在场；两份部署产物与工作区构建哈希逐字节相同
+  （核心 6,294,016 B、AFTP 79,360 B）。
+- 两处刻意的实现选择：① 层数 +1 用效果槽 `SetPowerAmount` 而不是 `ApplyPower`——后者会跑 `AfterApplied`，
+  把 `DynamicVars["BaseAmount"]` 重写成新层数，回合末的回滚就错了；② 私有 `_pendingBlock` 放预测状态
+  （克隆会丢私有字段），并登记指纹槽，避免只差累计值的两条分支被去重。
+- **未验证**：蛇草本体（`MOVE_BRANCH` 与 `SPORES`）**下一批**才接，所以本轮没有在游戏内跑过任何依赖这段
+  镜像的战斗，也没有最小差分夹具；证据只到「登记的条目在已部署产物里存在且形状与源码一致」。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕戴卡（`Deca`）与 AFTP `PlatedArmorPower`（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

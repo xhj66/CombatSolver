@@ -477,6 +477,7 @@ ModifyHpLostMirrors.RegisterAfterOstyLate(Type modelType, Func<AbstractModel, Mo
 BeforeSideTurnEndMirrors.RegisterEarly(Type modelType, Action<AbstractModel, BeforeSideTurnEndMirrorContext> handler);
 PowerHiddenStateMirrors.Register(Type powerType, string name, Func<CombatPredictionSimulator, PowerModel, long> read);
 PowerHiddenStateMirrors.RegisterRootCapture(Type powerType, Action<CombatPredictionSimulator, PowerModel, PowerModel> capture);
+AfterAttackMirrors.Register(Type modelType, Action<AbstractModel, AfterAttackMirrorContext> handler);
 AfterDeathMirrors.Register(Type modelType, Action<AbstractModel, AfterDeathMirrorContext> handler);
 AfterDeathMirrors.RegisterIgnored(Type modelType);
 BeforeDeathMirrors.Register(Type modelType, Action<AbstractModel, BeforeDeathMirrorContext> handler);
