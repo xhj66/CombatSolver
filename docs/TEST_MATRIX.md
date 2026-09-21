@@ -1,5 +1,24 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕开篇（Repulsor／蛇匕首 `SnakeDagger`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondMoveEffects` 的 `RequireConst("Repulsor","DazeAmount",2)`、
+  `Repulsor.DAZE`（`AddToCombat<Dazed>(player, PileType 1, 2, null, CardPilePosition 3)`）、
+  `SnakeDagger.WOUND_STAB`（`AddToCombat<Wound>(player, PileType 3, 1, null, Bottom)`）、
+  `SnakeDagger.EXPLODE`（通用攻击循环结算 25 点 `DeathBlowIntent` 伤害，效果侧 `simulator.Kill(owner)`
+  ＋ `killedOwner`）与 `RegisterOwnerRemovingMove("SnakeDagger","EXPLODE")`、
+  `BeyondBranchResolvers` 的 `Repulsor.MOVE_BRANCH` 解析器与纯读取声明全部在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 66,048 B；本轮核心未改、未重新部署）。
+- 与源码逐行对应：`Repulsor.SelectNextMove`（先 `NextInt(100)`，`< 20` 且最近一步非 `ATTACK` ⇒ `ATTACK`）、
+  `Daze` 的 `(PileType)1` ＝抽牌堆与 `(CardPilePosition)3` ＝随机、`WoundStab` 的 `(PileType)3` ＝弃牌堆与
+  `(CardPilePosition)1` ＝底部、`Explode` 的 `CreatureCmd.Kill(自己, false)` ↔ `simulator.Kill(owner)`
+  （`force` 缺省与源码一致）。`DeathBlowIntent : SingleAttackIntent` 由反编译确认，因此 EXPLODE 的 25 点
+  伤害本来就随意图冻结在 `BranchMonsterAi` 里，不需要（也不能）登记成「常量构造」。
+- **未验证**：没有在游戏内打过「排斥者」或「蛇匕首」遭遇，`DAZE` 的随机入堆位置、`EXPLODE` 的自杀与
+  「自杀后搜索不再给它排后续回合」三条都是**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：动态攻击值登记点与第二幕精英往昔之书（`BookOfStabbing`）（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

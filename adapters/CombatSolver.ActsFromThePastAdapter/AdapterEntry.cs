@@ -32,6 +32,8 @@ public static class AdapterEntry
             CityBranchResolvers.Verify();
             CityMoveEffects.Verify();
             CityHooks.Verify();
+            BeyondBranchResolvers.Verify();
+            BeyondMoveEffects.Verify();
             ExordiumCardPatches.Verify();
         }
         catch (Exception ex)
@@ -48,14 +50,16 @@ public static class AdapterEntry
         CityBranchResolvers.RegisterAll();
         CityMoveEffects.RegisterAll();
         CityHooks.RegisterAll();
+        BeyondBranchResolvers.RegisterAll();
+        BeyondMoveEffects.RegisterAll();
         ExordiumCardPatches.RegisterAll();
         Log(
             $"[{ModId}] 往昔之章适配已登记："
-            + $"行动分支 {ExordiumBranchResolvers.RegisteredMonsterTypes.Length + CityBranchResolvers.RegisteredMonsterTypes.Length} 个怪物"
-            + $"（第一幕 {ExordiumBranchResolvers.RegisteredMonsterTypes.Length}／第二幕 {CityBranchResolvers.RegisteredMonsterTypes.Length}）、"
+            + $"行动分支 {ExordiumBranchResolvers.RegisteredMonsterTypes.Length + CityBranchResolvers.RegisteredMonsterTypes.Length + BeyondBranchResolvers.RegisteredMonsterTypes.Length} 个怪物"
+            + $"（第一幕 {ExordiumBranchResolvers.RegisteredMonsterTypes.Length}／第二幕 {CityBranchResolvers.RegisteredMonsterTypes.Length}／第三幕 {BeyondBranchResolvers.RegisteredMonsterTypes.Length}）、"
             + $"常量构造攻击 {ExordiumStableAttacks.RegisteredAttackCount + LaterActsStableAttacks.RegisteredAttackCount} 条"
             + $"（第一幕 {ExordiumStableAttacks.RegisteredAttackCount}／第二三幕 {LaterActsStableAttacks.RegisteredAttackCount}）、"
-            + "行动效果见 ExordiumMoveEffects 与 CityMoveEffects、能力与死亡钩子见 ExordiumHooks、"
+            + "行动效果见 ExordiumMoveEffects／CityMoveEffects／BeyondMoveEffects、能力与死亡钩子见 ExordiumHooks、"
             + "本体卡牌补丁见 ExordiumCardPatches（Slimed 的 classic 出牌补丁）。");
     }
 

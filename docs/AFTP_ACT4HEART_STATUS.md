@@ -578,6 +578,25 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 
 ---
 
+### 2.19 第三幕开篇：Repulsor 与蛇匕首（`SnakeDagger`）
+
+第三幕的前两只都**不需要任何新的本体能力**，只用既有的行动效果、分支解析器与「施法者自己离场」入口。
+
+| 怪物 | 分支 | 适配内容 |
+| --- | --- | --- |
+| `Repulsor` | `MOVE_BRANCH`：抽一次 `NextInt(100)`；`< 20` 且最近一步不是 `ATTACK` ⇒ `ATTACK`，否则 `DAZE`（只读 rng 与行动历史，**已声明为纯读取**） | `DAZE`：给每个活着的目标往**抽牌堆随机位置**塞 `DazeAmount`(2) 张 `Dazed`；`ATTACK` 是常量构造攻击，已在第二三幕的常量表里 |
+| `SnakeDagger` | 无分支：`WOUND_STAB` → `EXPLODE` → `EXPLODE` 自循环 | `WOUND_STAB`：9 点攻击（常量表已登记）之后往**弃牌堆底部**塞 1 张 `Wound`；`EXPLODE`：25 点攻击由通用攻击循环按意图结算，效果侧只补源码最后那句 `CreatureCmd.Kill(自己, false)`，并声明 `RegisterOwnerRemovingMove` |
+
+顺手纠正常量攻击表里的一句注释：`DeathBlowIntent : SingleAttackIntent`（反编译
+`MegaCrit.Sts2.Core.MonsterMoves.Intents.DeathBlowIntent` 确认），所以它的伤害**是**攻击意图的伤害、会被
+`BranchMonsterAi` 一并冻结；那里「`DeathBlowIntent` 没有攻击意图可声明」的说法只对「声明为**常量构造**」
+成立——`new DeathBlowIntent(() => 25m)` 的闭包是调用方 lambda，形状核对会拒绝这种声明，而伤害本身照旧可用。
+
+**未验证**：没有在游戏内打过「排斥者」或「蛇匕首」遭遇，`DAZE` 的随机入堆位置与 `EXPLODE` 的自杀
+都**未实机验证**；也没有最小差分夹具（AFTP 程序集接不进无人测试的隔离进程）。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -820,8 +839,8 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
-| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | SnakeDagger |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | Repulsor、Exploder、Spiker、OrbWalker |
+| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor（§2.19，纯读取）、Exploder、Spiker、OrbWalker |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
@@ -872,6 +891,17 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 结论：**第二幕剩下这八只里没有一只是「零登记」或纯登记活的**，`BronzeAutomaton` 与 `BronzeOrb` 是同一场
 遭遇、必须一起做；`TorchHead`（§2.18）已经完整。这个顺序也说明为什么先把「动态攻击值」
 （§2.17）这类**不依赖新阶段**的通用能力补齐更划算。
+
+### 4.3 第三幕 17 只的初判（读完源码的与只看了成员清单的分开记）
+
+第三幕已经从「成员清单 + 意图形状」过了一遍，并完整读了 `Repulsor`、`SnakeDagger`（§2.19，已适配）、
+`Exploder`、`Transient`、`Deca`。结论分三档：
+
+| 档 | 怪物 | 依据 |
+| --- | --- | --- |
+| **已适配** | `Repulsor`、`SnakeDagger`（§2.19） | 完整读过 |
+| 只缺「已有能力」的登记活 | `OrbWalker`（分支 + `LASER`/`CLAW` 都是常量攻击）、`Spiker`（分支 + `ATTACK`/`BUFF`，`AfterAddedToRoom` 里挂荆棘）、`SpireGrowth`（分支 + `QUICK_TACKLE`/`CONSTRICT`/`SMASH`，`ConstrictPower` 是原版）、`Reptomancer`（分支带重掷 + `SPAWN_DAGGER` 用已有的按类型生成入口 + 两个攻击） | 成员清单与常量攻击表；**尚未逐行读完**，动手前要按 §3.3 复核 |
+| 卡在本体能力上 | `Exploder`：源码的 `EXPLODE` 用 **`CreatureCmd.Damage`（直伤）**而不是 `DamageCmd.Attack`，而它的 `DeathBlowIntent` 是攻击意图、会被通用攻击循环当攻击结算——要精确复刻就得有「这条第三方行动的意图伤害不由通用攻击循环结算」的入口；`Transient`：`ShiftingPower` 要给自己的 `TemporaryStrengthPower` 子类施加负力量（需要按 `Type` 施加临时力量的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪）；`Deca`/`Donu`：AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；`Maw`/`GiantHead`：`NOMNOMNOM_MULTI`/`IT_IS_TIME` 是 `Dynamic*AttackIntent`（动态攻击值已就绪，但两只都还要 `BeforeDeath` 与分支）；`Nemesis`：自身 `AfterSideTurnEnd` 重写 + 无实体化；`WrithingMass`：分支用私有 RNG 抽行动；`Darkling`/`AwakenedOne`：复活/重生（`DEAD_MOVE`/`REATTACH_MOVE`/`REBIRTH` 与内部数据）；`TimeEater`：`TimeWarpPower` 的回合计数与 `HASTE` | 完整读过 `Exploder`／`Transient`／`Deca`；其余为成员清单初判 |
 
 ---
 

@@ -12,6 +12,20 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕开篇（Repulsor／蛇匕首 `SnakeDagger`）（2026-09-21）
+
+- 范围推进到第三幕，先做两只**不需要新本体能力**的：`Repulsor`（`MOVE_BRANCH` 只读 rng 与行动历史，
+  因此声明为纯读取；`DAZE` 往抽牌堆**随机位置**塞 2 张 `Dazed`）与 `SnakeDagger`（`WOUND_STAB` 攻击后
+  往弃牌堆底部塞 1 张 `Wound`；`EXPLODE` 的攻击由通用攻击循环按意图结算，效果侧只补最后那句
+  `CreatureCmd.Kill(自己, false)` 并登记 `RegisterOwnerRemovingMove`）。
+- 顺手纠正一条既有注释：`DeathBlowIntent : SingleAttackIntent`（反编译确认），所以 EXPLODE 的 25 点
+  伤害随意图冻结即可用；常量攻击表里「`DeathBlowIntent` 没有攻击意图可声明」只对「声明为常量构造」成立
+  （`() => 25m` 是调用方 lambda，形状核对会拒绝那种声明）。
+- 第三幕 17 只的缺口初判写进 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §4.3：
+  `OrbWalker`／`Spiker`／`SpireGrowth`／`Reptomancer` 初判只缺登记活（尚未逐行读完）；
+  `Exploder` 卡在「直伤 vs 攻击命令」的入口、`Transient` 卡在第三方临时力量、`Deca`/`Donu` 卡在
+  `BeforeSideTurnStart`（AFTP 自己的 `PlatedArmorPower` 要在第 1 回合给格挡）等。
+
 ## 未发布：动态攻击值登记点与往昔之书（`BookOfStabbing`）（2026-09-21）
 
 - 本体新增第三类攻击数值口径 `ThirdPartyAdapterRegistry.RegisterMonsterAttackValues(怪物类型名, 行动 Id, resolver)`：
