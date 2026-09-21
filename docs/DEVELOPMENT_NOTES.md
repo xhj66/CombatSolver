@@ -23,6 +23,13 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第二幕蛇草（`SnakePlant`）（2026-09-21）
+
+- 收尾上一批的 `MalleablePower` 镜像：本体只差两件——`MOVE_BRANCH`（抽一次 `NextInt(100)`，`< 65` 时
+  看 `LastTwoMoves("CHOMP")`，否则看「上一步与**上上步**都不是 SPORES」，因此需要一个
+  `LastMoveBefore`＝`stateLog[^2]` 的辅助判断；不写状态，声明为纯读取）与 `SPORES`（给每个活着的目标
+  `DebuffAmount`（自检钉死 2）层破甲与虚弱）。`CHOMP` 是常量构造的三段攻击，开场那 3 层可塑在
+  `AfterAddedToRoom`（已在根里）。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.30。
 ## 未发布：AFTP `MalleablePower` 镜像与本体 `AfterAttackMirrors.Register(Type, …)`（2026-09-21）
 
 - 为蛇草的「可塑」补齐镜像时发现本体的一个缺口：`AfterAttackMirrors` 原来只有泛型注册，第三方类型登记不

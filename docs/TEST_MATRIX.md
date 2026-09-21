@@ -1,5 +1,18 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕蛇草（`SnakePlant`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.SnakePlant`（抽 `NextInt(100)`；`< 65` 时
+  `LastTwoMoves("CHOMP")`；否则 `LastMove`／`LastMoveBefore` 判 SPORES，后者是 `stateLog[^2]`）
+  与纯读取声明、`LastMoveBefore` 辅助函数、`RequireConst("SnakePlant","DebuffAmount",2)`、
+  `SnakePlantSpores`（两次 `combat.Apply`：破甲 + 虚弱）与 `"SnakePlant"` 进自检类型表都在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 80,384 B；核心本轮未改）。
+- 上一批的 `MalleablePower` 镜像（§2.29）本轮起有真实用户：蛇草开场挂 3 层，之后每次挨打累加、
+  攻击或回合末兑现、回合末回滚层数。
+- **未验证**：没有在游戏内打过「蛇草」遭遇，分支的「上上步」判据、SPORES 的两种减益、可塑的
+  累加／兑现／回滚都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：AFTP `MalleablePower` 镜像与本体 `AfterAttackMirrors.Register(Type, …)`（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

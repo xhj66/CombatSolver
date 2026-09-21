@@ -782,6 +782,21 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 也没有最小差分夹具。
 ---
 
+### 2.30 第二幕：蛇草（`SnakePlant`）——收尾 §2.29 的镜像
+
+上一批把它的 `MalleablePower` 镜像做完（§2.29），这一批补本体，第二幕因此又清一只。
+
+| 部位 | 源码（`ActsFromThePast.SnakePlant`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 给自己挂 3 层 `MalleablePower` | **不需要代码**（根捕获前已在实例上）；它的行为见 §2.29 |
+| `MOVE_BRANCH` | 抽一次 `NextInt(100)`；`< 65` 时最近**连着两次**不是 CHOMP 就 CHOMP、否则 SPORES；否则「上一步不是 SPORES **且上上步也不是** SPORES」就 SPORES，再不然 CHOMP | `BeyondBranchResolvers.SnakePlant`（含 `LastMoveBefore`＝`stateLog[^2]`，与 CityBranchResolvers 同一条口径）；只读 rng 与行动历史 → **已声明为纯读取** |
+| `CHOMP` | `MultiAttackIntent(ChompDamage, 3)` | 已在第二三幕常量表 |
+| `SPORES` | 给每个活着的目标 2 层破甲与 2 层虚弱（`DebuffAmount`） | `SnakePlantSpores`：两次 `combat.Apply`（施加者是蛇草），层数用 `RequireConst` 钉死 2 |
+
+**未验证**：没有在游戏内打过「蛇草」遭遇，分支那条「上上步」判据、SPORES 的两种减益、以及
+`MalleablePower` 的累加／兑现／回滚（§2.29）都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1090,7 +1105,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 档 | 怪物 | 依据 |
 | --- | --- | --- |
-| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）、`Donu`（§2.27）、`Deca`（§2.28） | 完整读过 |
+| **已适配** | 第三幕 `Repulsor`、`SnakeDagger`、`Spiker`、`OrbWalker`、`SpireGrowth`、`Maw`、`GiantHead`、`Reptomancer`、`Exploder`、`Donu`、`Deca`（§2.19–§2.28）；第二幕 `SnakePlant`（§2.30，本体）＋ `MalleablePower`（§2.29，Power 镜像） | 完整读过 |
 | 只缺「已有能力」的登记活 | —（第三幕这一档已清空；`Deca`/`Donu` 等仍在下一档） | — |
 | 卡在本体能力上 | `Exploder`：源码的 `EXPLODE` 用 **`CreatureCmd.Damage`（直伤）**而不是 `DamageCmd.Attack`，而它的 `DeathBlowIntent` 是攻击意图、会被通用攻击循环当攻击结算——要精确复刻就得有「这条第三方行动的意图伤害不由通用攻击循环结算」的入口；`Transient`：`ShiftingPower` 要给自己的 `TemporaryStrengthPower` 子类施加负力量（需要按 `Type` 施加临时力量的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪）；`Deca`/`Donu`：AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；`Maw`/`GiantHead`：`NOMNOMNOM_MULTI`/`IT_IS_TIME` 是 `Dynamic*AttackIntent`（动态攻击值已就绪，但两只都还要 `BeforeDeath` 与分支）；`Nemesis`：自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化；`WrithingMass`：分支用私有 RNG 抽行动；`Darkling`/`AwakenedOne`：复活/重生（`DEAD_MOVE`/`REATTACH_MOVE`/`REBIRTH` 与内部数据）；`TimeEater`：`TimeWarpPower` 的回合计数与 `HASTE` | 完整读过 `Exploder`／`Transient`／`Deca`／`OrbWalker`；其余为成员清单初判 |
 
@@ -1119,7 +1134,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
 | 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | `ShelledParasite` | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
-| 二 | `SnakePlant` | **Power 镜像已完成**（§2.29）；本体还差 `MOVE_BRANCH`（只读，可声明纯读取）与 `SPORES`（2 破甲 + 2 虚弱） |
+| 二 | `BronzeAutomaton` |
 | 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
 | 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |

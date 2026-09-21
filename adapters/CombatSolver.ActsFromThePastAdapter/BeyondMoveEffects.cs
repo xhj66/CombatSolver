@@ -36,7 +36,11 @@ internal static class BeyondMoveEffects
         "Exploder",
         "Donu",
         "Deca",
+        "SnakePlant",
     ];
+
+    /// <summary>蛇草 SPORES 给的虚弱／破甲层数（AFTP <c>DebuffAmount</c>）。</summary>
+    private static int _snakePlantDebuffAmount;
 
     /// <summary>AFTP 自己的 <c>PlatedArmorPower</c>（与原版 <c>PlatingPower</c> 是两个类型）。</summary>
     private static Type _platedArmorType = null!;
@@ -112,6 +116,7 @@ internal static class BeyondMoveEffects
                 BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException(
                 "ActsFromThePast.MalleablePower._pendingBlock 不存在，往昔之章版本可能已变动。");
+        _snakePlantDebuffAmount = AfpReflection.RequireConst("SnakePlant", "DebuffAmount", 2);
     }
 
     public static void RegisterAll()
@@ -228,6 +233,29 @@ internal static class BeyondMoveEffects
             static (simulator, power) => simulator.StateStore
                 .Peek(power, () => new MalleablePendingBlockState(power))
                 .PendingBlock);
+
+        // --- 蛇草（SnakePlant） ---
+        // 开场的 3 层 MalleablePower 发生在 AfterAddedToRoom（已在根里，镜像见上）；
+        // CHOMP 是常量构造的三段攻击；这里只补 SPORES。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SnakePlant", "SPORES", SnakePlantSpores);
+    }
+
+    /// <summary>SnakePlant.Spores：给每个活着的目标 <c>DebuffAmount</c> 层破甲与虚弱（施加者是蛇草）。</summary>
+    private static bool SnakePlantSpores(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.Apply<FrailPower>(player, _snakePlantDebuffAmount, move.Owner);
+        combat.Apply<WeakPower>(player, _snakePlantDebuffAmount, move.Owner);
+        return true;
     }
 
     /// <summary>

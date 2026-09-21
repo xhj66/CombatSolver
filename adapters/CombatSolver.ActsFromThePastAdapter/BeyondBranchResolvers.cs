@@ -35,12 +35,13 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GiantHead", "MOVE_BRANCH", GiantHead);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Reptomancer", "MOVE_BRANCH", Reptomancer);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Exploder", "MOVE_BRANCH", Exploder);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SnakePlant", "MOVE_BRANCH", SnakePlant);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder"];
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder", "SnakePlant"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -53,6 +54,7 @@ internal static class BeyondBranchResolvers
         ("OrbWalker", "MOVE_BRANCH"),
         ("SpireGrowth", "MOVE_BRANCH"),
         ("Reptomancer", "MOVE_BRANCH"),
+        ("SnakePlant", "MOVE_BRANCH"),
     ];
 
     /// <summary>
@@ -120,6 +122,35 @@ internal static class BeyondBranchResolvers
         => log.Count > 1
             && string.Equals(log[^1], moveId, StringComparison.Ordinal)
             && string.Equals(log[^2], moveId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// SnakePlant.SelectNextMove：抽一次 <c>NextInt(100)</c>；`&lt; 65` 时最近**连着两次**不是 CHOMP 就
+    /// CHOMP、否则 SPORES；否则只要「上一步不是 SPORES 且上上步也不是 SPORES」就 SPORES，再不然 CHOMP。
+    /// </summary>
+    /// <remarks>
+    /// 只读 rng 与行动历史，不写任何状态，所以**已声明为纯读取**。注意源码里那条 `LastMoveBefore` 判的是
+    /// **上上步**（`stateLog[^2]`），不是「连续两次」——它允许「SPORES、CHOMP、SPORES」这种间隔。
+    /// </remarks>
+    private static string SnakePlant(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = combat;
+        _ = simulator;
+        int num = rng.NextInt(100);
+        if (num < 65)
+            return LastTwoMoves(log, "CHOMP") ? "SPORES" : "CHOMP";
+        return !LastMove(log, "SPORES") && !LastMoveBefore(log, "SPORES") ? "SPORES" : "CHOMP";
+    }
+
+    private static bool LastMoveBefore(IReadOnlyList<string> log, string moveId)
+        => log.Count > 1 && string.Equals(log[^2], moveId, StringComparison.Ordinal);
 
     /// <summary>
     /// Maw.SelectNextMove：先把回合计数 +1；还没咆哮过就 **不抽 RNG** 直接 ROAR；否则抽一次
