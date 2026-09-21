@@ -686,6 +686,18 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。
 
+#### ⚠️ 未适配的怪物不等于「被拒绝」
+
+第二、三幕里**没有**自定义分支状态的怪物（`Bear`、`Pointy`、`SphericGuardian`、`Taskmaster`、
+`TorchHead`、`Deca`、`Donu`、`SnakeDagger`、`Transient` …）今天就已经能算出路线——搜索**不会**
+因为某个行动没登记效果就拒绝它：`MonsterMoveEffects.Apply` 走的是「命中登记表就用，否则继续往下
+按原版 switch 匹配，再不然什么都不做」。所以这些战斗的**模拟会静默漏掉没登记的效果**
+（例如 `Taskmaster.SCOURING_WHIP` 的 Wound、`SphericGuardian.ACTIVATE` 的格挡），
+界面只靠 `IntentForecaster` 的「未支持意图」红字和「低可信度」提示这件事。
+
+**因此「能出路线」不能当成「适配好了」。** 逐个怪物的验收标准仍然是 §4.1 那五项
+（分支 / 状态 / 行动效果 / 力量镜像 / 常量攻击）都核对完，而不是「求解器没报错」。
+
 ---
 
 ## 5. 本地编译
