@@ -1,5 +1,6 @@
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Random;
+using CombatSolver.Engine.InCombat.Simulation;
 
 namespace CombatSolver.ActsFromThePastAdapter;
 
@@ -99,7 +100,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int num = rng.NextInt(100);
         if (num < 40)
@@ -125,7 +127,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int num = rng.NextInt(100);
         if (num < 30)
@@ -139,7 +142,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int num = rng.NextInt(100);
         if (num < 60)
@@ -153,7 +157,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int num = rng.NextInt(100);
         if (num < 25)
@@ -182,7 +187,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         if (!LastMove(log, "SKULL_BASH") && !LastMoveBefore(log, "SKULL_BASH"))
             return "SKULL_BASH";
@@ -195,7 +201,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int num = rng.NextInt(100);
         if (num >= 40 && !LastTwoMoves(log, "STAB"))
@@ -211,7 +218,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
         => combat.GetMonsterInt(monster.Creature, "_currentCharge") >= ExordiumMoveEffects.GremlinWizardChargeLimit
             ? "ULTIMATE_BLAST"
             : "CHARGING";
@@ -226,7 +234,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
         => combat.GetMonsterInt(monster.Creature, "_mugCount") < 2 ? "MUG" : "AFTER_SECOND_MUG";
 
     /// <summary>
@@ -238,7 +247,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         if (combat.GetMonsterBool(monster.Creature, "_splitTriggered"))
             return "SPLIT";
@@ -266,7 +276,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         if (combat.GetMonsterBool(monster.Creature, "_splitTriggered"))
             return "SPLIT";
@@ -282,7 +293,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
         => combat.GetMonsterBool(monster.Creature, "_splitTriggered") ? "SPLIT" : "GOOP_SPRAY";
 
     /// <summary>
@@ -295,7 +307,8 @@ internal static class ExordiumBranchResolvers
         string branchId,
         IReadOnlyList<string> log,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
         => combat.GetTeammatesOf(monster.Creature).Count > 1 ? "PROTECT" : "SHIELD_BASH";
 
     // === AFTP 各敌人自带的同名辅助函数 ===

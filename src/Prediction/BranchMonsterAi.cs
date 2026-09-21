@@ -288,6 +288,7 @@ internal static class BranchMonsterAi
                 source.StateLog,
                 simulator.Rng.MonsterAi,
                 combat,
+                simulator,
                 out string thirdPartyResolved))
         {
             return thirdPartyResolved;

@@ -40,12 +40,18 @@ internal static class ThirdPartyAdapterRegistry
     /// <summary>
     /// 第三方怪物自定义分支状态的解析。必须返回 <paramref name="stateLog"/> 中确实存在的行动 Id。
     /// </summary>
+    /// <remarks>
+    /// <paramref name="simulator"/> 用来读**模拟状态**里的数值（例如按队友已损失生命和判定要不要治疗：
+    /// <c>simulator.State.GetCreature(teammate).CurrentHp</c>）。分支里**不得**读实机生物的血量、
+    /// 手牌或任何会随实机推进变化的值——那正是「实机字段不随分支 Fork」要挡的事。
+    /// </remarks>
     public delegate string MonsterBranchResolver(
         MonsterModel monster,
         string branchId,
         IReadOnlyList<string> stateLog,
         Rng rng,
-        SimulatedCombatState combat);
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator);
 
     /// <summary>
     /// 第三方 Power 在自己那一方的回合开始时需要做的重置。
@@ -285,6 +291,7 @@ internal static class ThirdPartyAdapterRegistry
         IReadOnlyList<string> stateLog,
         Rng rng,
         SimulatedCombatState combat,
+        CombatPredictionSimulator simulator,
         out string resolved)
     {
         resolved = string.Empty;
@@ -294,7 +301,7 @@ internal static class ThirdPartyAdapterRegistry
         {
             return false;
         }
-        resolved = resolver(monster, branchId, stateLog, rng, combat);
+        resolved = resolver(monster, branchId, stateLog, rng, combat, simulator);
         if (string.IsNullOrEmpty(resolved))
         {
             throw new PredictionUnsupportedException(

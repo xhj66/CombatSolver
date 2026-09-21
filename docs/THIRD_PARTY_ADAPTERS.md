@@ -492,7 +492,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | 入口 | 用途 |
 |---|---|
 | `RegisterMonsterMoveEffect(怪物类型名, 行动 Id, handler)` | 某个行动的**非攻击部分**（攻击仍由通用攻击循环按意图结算） |
-| `RegisterMonsterBranchResolver(怪物类型名, 分支 Id, resolver)` | 自定义分支状态的下一步选择 |
+| `RegisterMonsterBranchResolver(怪物类型名, 分支 Id, resolver)` | 自定义分支状态的下一步选择。`resolver(monster, branchId, stateLog, rng, combat, simulator)`：行动历史与 RNG 逐条照抄源码，**数值一律从模拟状态读** |
 | `RegisterPureBranchSelector(怪物类型名, 分支 Id)` | 声明该分支的选择函数是**纯读取**，预测器可以照旧在实机上调用它推演后续回合；见下 |
 | `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |
 | `RegisterStaticIntMembers(怪物类型名, 成员名…)` | 只在根捕获读一次的静态数值 |
@@ -534,6 +534,22 @@ ThirdPartyAdapterRegistry.RegisterPureBranchSelector("你的怪物类型名", "�
 
 `RegisterPureBranchSelector` 与 `AfterDeathMirrors.RegisterIgnored` 是同一类「已复核事实」登记：
 挡行为变化的是你自己的复核和你写的自检，不是运行期能判定的性质。
+
+#### 分支解析器读的必须是模拟状态
+
+`RegisterMonsterBranchResolver` 的解析函数拿到 6 样东西：
+
+```csharp
+string Resolve(MonsterModel monster, string branchId, IReadOnlyList<string> stateLog,
+               Rng rng, SimulatedCombatState combat, CombatPredictionSimulator simulator)
+```
+
+- `stateLog` 是**当前预测分支**的行动历史（不是实机状态机的 `StateLog`）；
+- `rng` 就是 `MonsterAi` 那条流，**调用顺序与短路条件都要照抄**——「某条分支不抽 RNG」也是语义；
+- `combat` / `simulator` 用来读**模拟状态**里的数值：怪物标量走 `combat.GetMonsterInt/Bool`，
+  生物血量走 `simulator.State.GetCreature(creature).CurrentHp / MaxHp`（例如「队友已损失生命和超过阈值
+  就治疗」这种分支只能这么写）；
+- 实机生物的血量、手牌、Power 一律**不许读**：它们不随分支 Fork，读到的会是同一份陈旧值。
 
 #### 可变的「状态字节」不要直接用冻结的条件分支
 

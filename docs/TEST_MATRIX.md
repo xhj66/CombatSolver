@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕开篇（Centurion + Mystic）与分支解析器读模拟状态（2026-09-21）
+
+- 求解器本体与两个适配（AFTP、Heart）Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心的 `MonsterBranchResolver` 委托与
+  `TryResolveBranch` 都已带 `CombatPredictionSimulator` 形参、`BranchMonsterAi` 的调用点已传 `simulator`；
+  适配里 `CityBranchResolvers`（Centurion/Mystic 两条解析器 + 2 条纯读取声明）与 `CityMoveEffects`
+  （ProtectBlock／HealAmount／HealThreshold／StrengthAmount 四个静态成员、4 条行动效果、
+  百夫长按私有 RNG 抽目标的 `adapter_centurion_rng_draws`）全部在场；三份产物与工作区构建哈希逐字节相同。
+- 与源码的对应：Centurion 与 Mystic 的 `SelectNextMove` 逐行对照（含「先判治疗再抽 RNG」的顺序、
+  `GetTeammatesOf` 含死者、`Rng.NextItem` 空集合不抽）；`ProtectBlock`(20/15)、
+  `HealAmount`/`HealThreshold`（`20 * Players.Count`）、`StrengthAmount`(4/3) 的来源已核对。
+- **未验证**：没有在游戏内打过「百夫长与秘术师」遭遇，所以两条分支的 RNG 对齐、百夫长抽到的格挡目标、
+  秘术师的治疗/强化生效都是**未实机验证**；也没有最小差分夹具（AFTP 程序集接不进无人测试的隔离进程）。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：第二、三幕的常量构造攻击登记（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

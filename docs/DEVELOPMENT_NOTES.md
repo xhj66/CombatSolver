@@ -12,6 +12,18 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第二幕开篇（Centurion + Mystic）与分支解析器读模拟状态（2026-09-21）
+
+- `ThirdPartyAdapterRegistry.MonsterBranchResolver` 的签名补了最后一个 `CombatPredictionSimulator` 参数：
+  第三方分支有时要看**生物血量**（往昔之章秘术师按「队友已损失生命和 > 阈值」决定要不要治疗），
+  而血量只能在模拟状态上算（`simulator.State.GetCreature(c).CurrentHp/MaxHp`）——实机血量在 worker 里
+  既会随实机推进变化、也不随分支 Fork。两个适配的 15 个解析器同步补形参；手册新增
+  「分支解析器读的必须是模拟状态」一节。
+- AFTP 第二幕开篇：解锁同一场遭遇的 **Centurion** 与 **Mystic**（分支逐条照抄 RNG 顺序与短路；
+  百夫长的 `Protect` 复用怪物私有 RNG 抽格挡目标、秘术师的治疗/强化按存活队友逐个结算；
+  四个取值走静态数值成员）。逐条对照与新建的本体入口见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.13。
+
 ## 未发布：第二、三幕的常量构造攻击登记（2026-09-21）
 
 - 范围扩到全部怪物后，把「伤害与段数都在意图构造时固定」的攻击行动一次性补齐到第二、三幕：

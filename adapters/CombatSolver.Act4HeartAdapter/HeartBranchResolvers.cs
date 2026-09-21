@@ -1,6 +1,7 @@
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Random;
 using CombatSolver.Engine.Common;
+using CombatSolver.Engine.InCombat.Simulation;
 
 namespace CombatSolver.Act4HeartAdapter;
 
@@ -109,7 +110,8 @@ internal static class HeartBranchResolvers
         string branchId,
         IReadOnlyList<string> stateLog,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int state = combat.GetMonsterInt(monster.Creature, StateMember);
         if ((state & 1) == 0)
@@ -126,7 +128,8 @@ internal static class HeartBranchResolvers
         string branchId,
         IReadOnlyList<string> stateLog,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int state = combat.GetMonsterInt(monster.Creature, StateMember);
         if ((state & 1) == 0)
@@ -143,7 +146,8 @@ internal static class HeartBranchResolvers
         string branchId,
         IReadOnlyList<string> stateLog,
         Rng rng,
-        SimulatedCombatState combat)
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
     {
         int state = combat.GetMonsterInt(monster.Creature, StateMember);
         if ((state & 1) == 0)

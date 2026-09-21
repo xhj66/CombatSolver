@@ -426,6 +426,32 @@ new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () =>
 
 ---
 
+### 2.13 第二幕开篇：Centurion 与 Mystic
+
+第一幕剩下四个（§2.2）都需要新的本体能力，先把第二幕开起来——`Centurion` 与 `Mystic` 是同一场
+遭遇（「百夫长与秘术师」）的两个成员，两个都不适配这场遭遇就仍然算不出来，所以成对做。
+
+| 环节 | AFTP 源码 | 适配 |
+| --- | --- | --- |
+| `Centurion.MOVE_BRANCH` | `rng.NextInt(100)`；`count = GetTeammatesOf(Creature).Count`；`num >= 65 && !LastTwoMoves(PROTECT) && !LastTwoMoves(FURY)` → 有队友 `PROTECT` 否则 `FURY`；否则 `!LastTwoMoves(SLASH)` → `SLASH`；再不然同上 | `CityBranchResolvers`，RNG 调用顺序与短路逐条照抄；已声明为纯读取 |
+| `Centurion.PROTECT` | `teammates.Any() ? Rng.NextItem(teammates) : Creature` → `GainBlock(target, ProtectBlock, Move)`，`ProtectBlock` = A8+ 20／否则 15 | 与小鬼盾兵的 `Protect` 同型：空队友列表**一次都不抽**，抽到就写 `adapter_centurion_rng_draws` |
+| `Mystic.MOVE_BRANCH` | **先**把队友（含自己）的 `MaxHp - CurrentHp` 求和，`> HealThreshold` 且没连治两次 → `HEAL`（这一步不抽 RNG）；否则 `rng.NextInt(100)`：`>= 40` 且上一步不是 `ATTACK` → `ATTACK`；没连强两次 → `BUFF`；再不然 `ATTACK` | 和用**模拟状态**的 `GetCreature(...).MaxHp/CurrentHp`（见下）；已声明为纯读取 |
+| `Mystic.ATTACK` | 攻击 + 给全体目标 2 层 Frail | `ApplyFromMonster<FrailPower>(player, 2, owner)`（源码不过滤存活，这里只在玩家还活着时施加——玩家已死则战斗已结束） |
+| `Mystic.HEAL` | 给所有存活队友（含自己）回复 `HealAmount` | `simulator.Heal(teammate, HealAmount)` |
+| `Mystic.BUFF` | 给所有存活队友（含自己）`StrengthAmount` 点力量 | `combat.Apply<StrengthPower>(teammate, amount, owner)` |
+
+`ProtectBlock` / `HealAmount` / `HealThreshold` / `StrengthAmount` 都是 `AscensionHelper` 或
+`20 * Players.Count` 形式的实例属性 → `RegisterStaticIntMembers`，根捕获读一次
+（单人局里 `HealAmount`/`HealThreshold` 都是 20）。
+
+**本体新增能力：分支解析器能读模拟状态。** `MonsterBranchResolver` 的签名补了最后一个
+`CombatPredictionSimulator` 参数——`Mystic` 那条分支要看**队友已损失生命和**，而它只能在模拟状态上算
+（`simulator.State.GetCreature(teammate).MaxHp / CurrentHp`）。实机血量在 worker 里既不能读（会随实机推进
+变化）也不该读（不随分支 Fork）。两个适配的全部 15 个解析器同步补了形参；这次签名变化记在
+[第三方适配手册](THIRD_PARTY_ADAPTERS.md) §2.13。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -669,7 +695,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | Pointy | SnakeDagger |
-| 1 | 分支只读自身标量／队友数 | GremlinShield（缺 `MonsterModel.Rng` 抽目标） | Centurion、GremlinLeader（同缺私有 RNG）、Mystic | Repulsor、Exploder、Spiker、OrbWalker |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13） | Repulsor、Exploder、Spiker、OrbWalker |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
 | 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
