@@ -491,7 +491,8 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 
 | 入口 | 用途 |
 |---|---|
-| `RegisterMonsterMoveEffect(怪物类型名, 行动 Id, handler)` | 某个行动的**非攻击部分**（攻击仍由通用攻击循环按意图结算） |
+| `RegisterMonsterMoveEffect(怪物类型名, 行动 Id, handler)` | 某个行动的**非攻击部分**（攻击仍由通用攻击循环按意图结算）。跑在攻击**之后** |
+| `RegisterMonsterMoveBeforeAttack(怪物类型名, 行动 Id, handler)` | 某个行动在**攻击之前**要做的部分（先加格挡／先上状态再打）。同一行动可以两段都登记 |
 | `RegisterMonsterBranchResolver(怪物类型名, 分支 Id, resolver)` | 自定义分支状态的下一步选择。`resolver(monster, branchId, stateLog, rng, combat, simulator)`：行动历史与 RNG 逐条照抄源码，**数值一律从模拟状态读** |
 | `RegisterPureBranchSelector(怪物类型名, 分支 Id)` | 声明该分支的选择函数是**纯读取**，预测器可以照旧在实机上调用它推演后续回合；见下 |
 | `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |
@@ -534,6 +535,20 @@ ThirdPartyAdapterRegistry.RegisterPureBranchSelector("你的怪物类型名", "�
 
 `RegisterPureBranchSelector` 与 `AfterDeathMirrors.RegisterIgnored` 是同一类「已复核事实」登记：
 挡行为变化的是你自己的复核和你写的自检，不是运行期能判定的性质。
+
+#### 攻击前／攻击后：行动的时序由两张表分开表达
+
+求解器结算一个怪物行动的顺序是**先攻击、再行动效果**（`MonsterMoveSemantics.ApplyForecastMove`）。
+源码里很多行动是「先给自己加格挡／先给玩家上状态，再打这次攻击」，用行动效果表达就会**晚一拍**——
+格挡晚一拍会和「挨打反伤」这类效果交互出不同结果。这类行动要用攻击前那张表：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("怪物类型名", "行动 Id", handler);
+// handler(simulator, combat, move, player) —— 返回值版本不需要，它不下命令也不选目标
+```
+
+同一 (怪物, 行动) 同时登记两段是允许的：攻击前那段先跑，打完再跑行动效果那段，各自对应源码里的位置。
+典型例子是往昔之章球状守卫的 `HARDEN`（先 15 格挡、再打出攻击）。
 
 #### 分支解析器读的必须是模拟状态
 

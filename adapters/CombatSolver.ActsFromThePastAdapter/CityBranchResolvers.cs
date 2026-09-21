@@ -27,11 +27,12 @@ internal static class CityBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Centurion", "MOVE_BRANCH", Centurion);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Mystic", "MOVE_BRANCH", Mystic);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Mugger", "MUG_BRANCH", Mugger);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Romeo", "MOVE_BRANCH", Romeo);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
-    internal static readonly string[] RegisteredMonsterTypes = ["Centurion", "Mystic", "Mugger"];
+    internal static readonly string[] RegisteredMonsterTypes = ["Centurion", "Mystic", "Mugger", "Romeo"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：都只读实机 StateLog、传入的 rng 与自己的标量字段，
@@ -42,6 +43,7 @@ internal static class CityBranchResolvers
         ("Centurion", "MOVE_BRANCH"),
         ("Mystic", "MOVE_BRANCH"),
         ("Mugger", "MUG_BRANCH"),
+        ("Romeo", "MOVE_BRANCH"),
     ];
 
     /// <summary>
@@ -113,6 +115,22 @@ internal static class CityBranchResolvers
         if (!LastTwoMoves(log, "BUFF"))
             return "BUFF";
         return "ATTACK";
+    }
+
+    /// <summary>
+    /// Romeo.SelectNextMove：只要最近没有连出两次交叉斩就继续交叉斩，否则痛苦斩。不抽 RNG
+    /// （开场那一下 MOCK 的后继固定是痛苦斩，由状态机本身表达）。
+    /// </summary>
+    private static string Romeo(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = simulator;
+        return LastTwoMoves(log, "CROSS_SLASH") ? "AGONIZING_SLASH" : "CROSS_SLASH";
     }
 
     private static bool LastMove(IReadOnlyList<string> log, string moveId)

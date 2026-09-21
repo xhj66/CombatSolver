@@ -46,6 +46,69 @@ internal static class AfpReflection
     }
 
     /// <summary>
+    /// 反射调用游戏内部的 <c>AscensionHelper.HasAscension(AscensionLevel)</c>。
+    /// </summary>
+    /// <remarks>
+    /// 往昔之章有些行动里写的是内联的 <c>AscensionHelper.HasAscension((AscensionLevel)9)</c>
+    /// （例如蛇怪的 <c>TAIL_WHIP</c> 只在 A9 及以上再加虚弱）——那个辅助类型是游戏内部的、适配层
+    /// 看不见，而把「A9」自己翻译成 <c>AscensionLevel &gt;= 9</c> 属于猜语义。所以照原样反射调用，
+    /// 判据与游戏逐字相同；调用前由 <see cref="VerifyAscensionHelper"/> 钉死成员形状。
+    /// </remarks>
+    public static bool HasAscension(int level)
+    {
+        _ = _ascensionHasAscension ?? throw new InvalidOperationException(
+            "AscensionHelper.HasAscension 还没核对过，请先调用 AfpReflection.VerifyAscensionHelper()。");
+        object boxed = Enum.ToObject(
+            _ascensionLevelType ?? throw new InvalidOperationException("AscensionLevel 枚举类型缺失。"),
+            level);
+        return (bool)(_ascensionHasAscension.Invoke(null, [boxed])
+            ?? throw new InvalidOperationException("AscensionHelper.HasAscension 返回了 null。"));
+    }
+
+    private static readonly string[] AscensionHelperTypeNames =
+    [
+        "MegaCrit.Sts2.Core.Entities.Ascension.AscensionHelper",
+        "MegaCrit.Sts2.Core.Helpers.AscensionHelper",
+        "AscensionHelper",
+    ];
+
+    private static Type? _ascensionLevelType;
+    private static MethodInfo? _ascensionHasAscension;
+
+    /// <summary>
+    /// 核对游戏里的 <c>AscensionHelper.HasAscension(AscensionLevel)</c> 还在，并缓存下来。
+    /// </summary>
+    public static void VerifyAscensionHelper()
+    {
+        Assembly game = LocateGameAssembly();
+        _ascensionLevelType = game.GetType("MegaCrit.Sts2.Core.Entities.Ascension.AscensionLevel", false)
+            ?? game.GetTypes().FirstOrDefault(type => type.IsEnum && type.Name == "AscensionLevel")
+            ?? throw new InvalidOperationException("游戏程序集里找不到 AscensionLevel 枚举。");
+        Type helper = AscensionHelperTypeNames
+                .Select(name => game.GetType(name, throwOnError: false))
+                .FirstOrDefault(type => type is not null)
+            ?? game.GetTypes().FirstOrDefault(type => type.Name == "AscensionHelper")
+            ?? throw new InvalidOperationException("游戏程序集里找不到 AscensionHelper。");
+        _ascensionHasAscension = helper
+                .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(method => method.Name == "HasAscension"
+                    && method.GetParameters().Length == 1
+                    && method.GetParameters()[0].ParameterType == _ascensionLevelType)
+            ?? throw new InvalidOperationException(
+                $"{helper.FullName}.HasAscension(AscensionLevel) 不再存在，往昔之章的进阶分支需要重新核对。");
+    }
+
+    private static Assembly LocateGameAssembly()
+    {
+        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (string.Equals(assembly.GetName().Name, "sts2", StringComparison.Ordinal))
+                return assembly;
+        }
+        throw new InvalidOperationException("当前进程里找不到 sts2 程序集，进阶判定无法核对。");
+    }
+
+    /// <summary>
     /// 核对某个类型**确实重写**了指定名字（与参数个数）的虚方法，并把这个类型取回来。
     /// </summary>
     /// <remarks>

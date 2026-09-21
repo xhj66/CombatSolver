@@ -466,6 +466,38 @@ new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () =>
 
 ---
 
+### 2.15 第二幕：Romeo、球状守卫、蛇怪（含本体新增「攻击前」钩子）
+
+| 怪物 | 分支 | 适配内容 |
+| --- | --- | --- |
+| `Romeo` | `MOVE_BRANCH`（`!LastTwoMoves(CROSS_SLASH) ? CROSS_SLASH : AGONIZING_SLASH`，不抽 RNG） | `MOCK`（开场纯台词，`UnknownIntent`）登记成空操作，免得被记成「未支持意图」；`AGONIZING_SLASH`：攻击 + `WeakAmount`（const 3）层虚弱 |
+| `SphericGuardian` | 无（固定循环 ACTIVATE → FRAIL_ATTACK → SLAM ⇄ HARDEN） | `ACTIVATE`：给自己 `ActivateBlock`（A8+ 35／否则 25）；`FRAIL_ATTACK`：攻击 + `FrailAmount`（const 5）层破甲；**`HARDEN`：先 `HardenBlock`（const 15）格挡再打**——走本轮的「攻击前」钩子；`SLAM` 是纯攻击。开场那 40 点格挡、`BarricadePower` 与 `ArtifactPower` 都发生在 `AfterAddedToRoom`（根捕获之前），已在根里 |
+| `Snecko` | 原版 `RandomBranchState`（60% BITE／40% TAIL_WHIP，通用逻辑已覆盖） | `GLARE`：给活着的目标 1 层困惑；`TAIL_WHIP`：2 层易伤，**A9 及以上**再加 2 层虚弱；`BITE` 是纯攻击 |
+
+**本体新增能力：行动的攻击前部分（`RegisterMonsterMoveBeforeAttack`）。**
+求解器按「攻击 → 行动效果」结算一个行动，而源码里 `HARDEN` 是「先加格挡再打」。只靠行动效果表达不了
+这个顺序（格挡会晚一拍，与挨打反伤这类效果交互起来结果不同），所以补了这段登记：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HARDEN", handler);
+```
+
+派发点在 `MonsterMoveSemantics.ApplyForecastMove` 里、原版 `MonsterMoveEffects.ApplyBeforeAttack` 之后、
+攻击上下文建立之前；同一 (怪物, 行动) 同时登记前后两段是允许的，各自按源码时序跑。
+这也是后续 `Guardian`（模式切换要读「正在执行行动」）与 `ShelledParasite` 需要的那块拼图。
+
+**进阶判据用反射，不猜语义。** 蛇怪的尾鞭写的是内联的 `AscensionHelper.HasAscension((AscensionLevel)9)`，
+而那个辅助类型是**游戏内部的**、适配层看不见。把「A9」自己翻译成 `AscensionLevel >= 9` 属于猜语义，
+所以 `AfpReflection` 新增 `VerifyAscensionHelper()` + `HasAscension(9)`：按名字找到
+`AscensionHelper` 与 `AscensionLevel` 枚举、核对 `HasAscension(AscensionLevel)` 这个静态方法还在，
+再原样反射调用——判据与游戏逐字相同；方法不在时自检失败、整个适配拒绝登记。
+
+顺带补了这两只的死亡钩子（否则每场打赢都不给战损，§3.6 同型）：`SphericGuardian.BeforeDeath`
+（`PlayDetectSfx`）与 `Snecko.BeforeDeath`（一句死亡音效）逐行复核为纯表现层，登记为忽略
+（`CityHooks`）。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -714,7 +746,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
 | 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
-| 5 | 强制改写当前行动 / 眩晕 | Guardian（`SetMoveImmediate` + `ModeShiftPower`）、Lagavulin（`CreatureCmd.Stun(…, "ATTACK")`） | ShelledParasite | AwakenedOne |
+| 5 | 强制改写当前行动 / 眩晕 | Guardian（`SetMoveImmediate` + `ModeShiftPower`；**攻击前钩子已就位**） | ShelledParasite（同类；攻击前钩子已就位） | AwakenedOne |
 | 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
 | 7 | 病症／可打出性镜像 | SlaverRed（`EntangledPower` + `EntangledOriginal` 病症） | — | — |
 | 8 | 预测期卡牌操作 | Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张） | — | — |

@@ -38,6 +38,19 @@ internal static class ThirdPartyAdapterRegistry
         out bool killedOwner);
 
     /// <summary>
+    /// 第三方怪物行动的**攻击前**部分。用于「先给自己加格挡／先给玩家上状态，再打出攻击」这类行动：
+    /// 求解器的通用攻击循环跑在行动效果之前，只靠 <see cref="MonsterMoveEffectHandler"/> 表达不了这个顺序。
+    /// </summary>
+    /// <remarks>
+    /// 同一 (怪物, 行动) 同时登记攻击前与攻击后两段是允许的，各自按源码的时序运行。
+    /// </remarks>
+    public delegate void MonsterBeforeAttackHandler(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player);
+
+    /// <summary>
     /// 第三方怪物自定义分支状态的解析。必须返回 <paramref name="stateLog"/> 中确实存在的行动 Id。
     /// </summary>
     /// <remarks>
@@ -65,6 +78,7 @@ internal static class ThirdPartyAdapterRegistry
         IReadOnlyList<Creature> participants);
 
     private static readonly Dictionary<(string Type, string Id), MonsterMoveEffectHandler> MoveEffectTable = [];
+    private static readonly Dictionary<(string Type, string Id), MonsterBeforeAttackHandler> MoveBeforeAttackTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterBranchResolver> BranchResolverTable = [];
     private static readonly HashSet<(string Type, string Id)> PureBranchSelectorTable = [];
     private static readonly Dictionary<string, string[]> StaticIntMemberTable = new(StringComparer.Ordinal);
@@ -156,6 +170,45 @@ internal static class ThirdPartyAdapterRegistry
 
     public static bool HasMoveEffect(string monsterTypeName, string moveId)
         => MoveEffectTable.ContainsKey((monsterTypeName, moveId));
+
+    /// <summary>
+    /// 登记某个第三方行动在**攻击之前**要做的部分。
+    /// </summary>
+    /// <remarks>
+    /// 求解器按 <c>攻击 → 行动效果</c> 的顺序结算一个行动；源码里先加格挡、先上状态再攻击的行动
+    /// （往昔之章球状守卫的 <c>HARDEN</c>：先 15 格挡再打）必须登记在这里，否则格挡会晚一拍，
+    /// 与「挨打时反伤」这类效果交互起来结果不同。
+    /// </remarks>
+    public static void RegisterMonsterMoveBeforeAttack(
+        string monsterTypeName,
+        string moveId,
+        MonsterBeforeAttackHandler handler)
+        => MoveBeforeAttackTable.Add((monsterTypeName, moveId), handler);
+
+    public static bool HasMoveBeforeAttack(string monsterTypeName, string moveId)
+        => MoveBeforeAttackTable.ContainsKey((monsterTypeName, moveId));
+
+    /// <summary>
+    /// 按 (怪物类型, 行动 Id) 派发第三方行动的**攻击前**部分。返回是否命中登记。
+    /// </summary>
+    public static bool TryApplyMoveBeforeAttack(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player)
+    {
+        MonsterModel? monster = move.Owner.Monster;
+        if (monster is null)
+            return false;
+        if (!MoveBeforeAttackTable.TryGetValue(
+                (monster.GetType().Name, move.Move.Id),
+                out MonsterBeforeAttackHandler? handler))
+        {
+            return false;
+        }
+        handler(simulator, combat, move, player);
+        return true;
+    }
 
     /// <summary>
     /// 按 (怪物类型, 行动 Id) 派发第三方行动效果。

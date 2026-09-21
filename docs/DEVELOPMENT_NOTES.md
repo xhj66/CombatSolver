@@ -12,6 +12,23 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：行动的攻击前钩子与第二幕三只（Romeo／球状守卫／蛇怪）（2026-09-21）
+
+- 本体新增 `ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack(怪物类型名, 行动 Id, handler)`：
+  求解器按「攻击 → 行动效果」结算一个行动，而源码里有的行动是「先加格挡／先上状态，再打」，
+  只靠行动效果表达会晚一拍（格挡与「挨打反伤」交互结果不同）。派发点在
+  `MonsterMoveSemantics.ApplyForecastMove` 里原版攻击前处理之后；同一行动允许前后两段都登记。
+  这块也是 `Guardian`／`ShelledParasite` 模式切换要用的拼图。
+- AFTP 第二幕再补三只：`Romeo`（MOCK 空操作 + 痛苦斩上 3 层虚弱 + 分支「不连出两次交叉斩」）、
+  `SphericGuardian`（ACTIVATE 格挡、破甲攻击上 5 层破甲、**HARDEN 先 15 格挡再打**——本轮新钩子的首个用户；
+  开场的 40 格挡与 Barricade／Artifact 都在 `AfterAddedToRoom`，已在根里）、
+  `Snecko`（GLARE 上困惑、尾鞭 2 易伤 + A9 及以上 2 虚弱；随机分支是原版类型、通用逻辑已覆盖）。
+  顺带把这两只的死亡钩子（都只有音效）登记为忽略，消掉「打赢却不给战损」的又一处来源。
+- `AfpReflection` 新增 `VerifyAscensionHelper()` + `HasAscension(9)`：蛇怪尾鞭写的是内联的
+  `AscensionHelper.HasAscension(A9)`，而那个辅助类型是游戏内部的——把 A9 自己翻译成
+  `AscensionLevel >= 9` 属于猜语义，改成「按名字找到类型、核对静态方法签名、原样反射调用」。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.15。
+
 ## 未发布：第二幕四只（Bear／Pointy／Taskmaster／Mugger）（2026-09-21）
 
 - 继续推进第二幕，一次补完四只：`Bear`（`BEAR_HUG` 负敏捷 + `LUNGE` 攻击加格挡）、`Pointy`

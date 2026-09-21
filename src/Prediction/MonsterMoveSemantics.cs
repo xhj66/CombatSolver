@@ -19,6 +19,9 @@ internal static class MonsterMoveSemantics
     {
         SimCreatureState simulatedPlayer = simulator.State.GetCreature(player);
         MonsterMoveEffects.ApplyBeforeAttack(simulator, combat, move, player);
+        // 第三方登记的攻击前部分（原版那批由上面的 switch 处理）：源码里「先加格挡／先上状态再攻击」
+        // 的行动靠这里把顺序摆正，否则格挡会晚一拍。
+        ThirdPartyAdapterRegistry.TryApplyMoveBeforeAttack(simulator, combat, move, player);
         if (simulator.HasPendingChoice)
             return simulatedPlayer.IsDead;
         bool fullyBlockedAttack = false;

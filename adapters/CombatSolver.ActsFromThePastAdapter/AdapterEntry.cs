@@ -31,6 +31,7 @@ public static class AdapterEntry
             LaterActsStableAttacks.Verify();
             CityBranchResolvers.Verify();
             CityMoveEffects.Verify();
+            CityHooks.Verify();
             ExordiumCardPatches.Verify();
         }
         catch (Exception ex)
@@ -46,6 +47,7 @@ public static class AdapterEntry
         LaterActsStableAttacks.RegisterAll();
         CityBranchResolvers.RegisterAll();
         CityMoveEffects.RegisterAll();
+        CityHooks.RegisterAll();
         ExordiumCardPatches.RegisterAll();
         Log(
             $"[{ModId}] 往昔之章适配已登记："

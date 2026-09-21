@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：行动的攻击前钩子与第二幕三只（Romeo／球状守卫／蛇怪）（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `MonsterBeforeAttackHandler` 委托、
+  `RegisterMonsterMoveBeforeAttack` / `TryApplyMoveBeforeAttack` 与 `MonsterMoveSemantics` 的派发点在场；
+  适配里 Romeo／球状守卫／蛇怪六条处理器、`HARDEN` 的攻击前处理器、三条 `RequireConst` 钉死
+  （`LungeBlock`/`WeakAmount`/`HardenBlock`/`FrailAmount`）、`ActivateBlock` 静态成员、
+  `CityHooks` 两条 `RegisterIgnored`（球状守卫与蛇怪的 `BeforeDeath`）与
+  `AfpReflection.VerifyAscensionHelper` 全部在场；部署产物与工作区构建哈希逐字节相同
+  （核心 6,290,944 B、AFTP 58,880 B）。
+- 进阶判据不猜语义：蛇怪尾鞭的 A9 分支改成「按名字定位游戏内部的 `AscensionHelper`、
+  核对 `HasAscension(AscensionLevel)` 签名、反射原样调用」，与游戏逐字同判据。
+- **未验证**：没有在游戏内打过这三场遭遇；`HARDEN` 的「格挡在攻击之前」只做过反编译对照，
+  没有可观察的差分（需要构造「玩家带反伤」的场景）；`AscensionHelper` 的反射定位也只在编译期核对过，
+  没有在运行期执行过（需要加载真实 AFTP + 游戏程序集）。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：第二幕四只（Bear／Pointy／Taskmaster／Mugger）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

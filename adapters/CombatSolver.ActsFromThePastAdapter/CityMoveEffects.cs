@@ -36,10 +36,20 @@ internal static class CityMoveEffects
         "Pointy",
         "Taskmaster",
         "Mugger",
+        "Romeo",
+        "SphericGuardian",
+        "Snecko",
     ];
 
     /// <summary>Bear 的冲刺格挡（AFTP <c>LungeBlock</c>）。</summary>
     private static int _bearLungeBlock;
+
+    /// <summary>Romeo 的虚弱层数（AFTP <c>WeakAmount</c>）。</summary>
+    private static int _romeoWeakAmount;
+
+    /// <summary>球状守卫的硬化格挡与破甲层数（AFTP <c>HardenBlock</c> / <c>FrailAmount</c>）。</summary>
+    private static int _sphericHardenBlock;
+    private static int _sphericFrailAmount;
 
     public static void Verify()
     {
@@ -48,6 +58,11 @@ internal static class CityMoveEffects
         // 百夫长的 Protect 要用它自己那条私有 RNG 流抽目标，核对该访问点还在。
         MonsterRngSupport.VerifyShape();
         _bearLungeBlock = AfpReflection.RequireConst("Bear", "LungeBlock", 9);
+        _romeoWeakAmount = AfpReflection.RequireConst("Romeo", "WeakAmount", 3);
+        _sphericHardenBlock = AfpReflection.RequireConst("SphericGuardian", "HardenBlock", 15);
+        _sphericFrailAmount = AfpReflection.RequireConst("SphericGuardian", "FrailAmount", 5);
+        // 蛇怪的尾鞭按 A9 分支，判据是游戏内部的 AscensionHelper.HasAscension（反射调用，先核对形状）。
+        AfpReflection.VerifyAscensionHelper();
     }
 
     public static void RegisterAll()
@@ -98,6 +113,137 @@ internal static class CityMoveEffects
         // Mugger.Escape：施法者自己离场，两侧都要声明
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mugger", "ESCAPE", MuggerEscape);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Mugger", "ESCAPE");
+
+        // --- Romeo（与熊／尖刺同场）与球状守卫、蛇怪 ---
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SphericGuardian", "ActivateBlock");
+        // Romeo.Mock 只有台词，登记成空操作免得 UnknownIntent 被记成「未支持意图」；
+        // AgonizingSlash：攻击 + WeakAmount 层虚弱（攻击前没有别的部分）。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Romeo", "MOCK", NoEffect);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Romeo", "AGONIZING_SLASH", RomeoAgonizingSlash);
+        // SphericGuardian：Activate 格挡、FrailAttack 上破甲；Harden **先加格挡再打**（攻击前钩子）；
+        // Slam 是纯攻击。Barricade／Artifact 与开场 40 格挡都发生在 AfterAddedToRoom，已在根里。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "SphericGuardian",
+            "ACTIVATE",
+            SphericGuardianActivate);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "SphericGuardian",
+            "FRAIL_ATTACK",
+            SphericGuardianFrailAttack);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack(
+            "SphericGuardian",
+            "HARDEN",
+            SphericGuardianHardenBeforeAttack);
+        // Snecko：Glare 上困惑、TailWhip 攻击后上易伤（A9 及以上再加虚弱）；Bite 是纯攻击。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Snecko", "GLARE", SneckoGlare);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Snecko", "TAIL_WHIP", SneckoTailWhip);
+    }
+
+    /// <summary>往昔之章里「什么都不做」的行动（UnknownIntent 的纯表演招），登记成空操作。</summary>
+    private static bool NoEffect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        return true;
+    }
+
+    /// <summary>Romeo.AgonizingSlash：给每个活着的目标 <c>WeakAmount</c> 层虚弱。</summary>
+    private static bool RomeoAgonizingSlash(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyFromMonster<WeakPower>(player, _romeoWeakAmount, move.Owner);
+        return true;
+    }
+
+    /// <summary>SphericGuardian.Activate：给自己 <c>ActivateBlock</c>（A8+ 35／否则 25）点格挡。</summary>
+    private static bool SphericGuardianActivate(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "ActivateBlock"),
+            ValueProp.Move);
+        return true;
+    }
+
+    /// <summary>SphericGuardian.FrailAttack：给每个活着的目标 <c>FrailAmount</c> 层破甲。</summary>
+    private static bool SphericGuardianFrailAttack(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyFromMonster<FrailPower>(player, _sphericFrailAmount, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// SphericGuardian.Harden：源码是**先** <c>GainBlock(HardenBlock)</c>、**再**打出这次攻击，
+    /// 所以走攻击前钩子而不是普通的行动效果（后者跑在攻击之后，格挡会晚一拍）。
+    /// </summary>
+    private static void SphericGuardianHardenBeforeAttack(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player)
+        => simulator.GainBlock(move.Owner, _sphericHardenBlock, ValueProp.Move);
+
+    /// <summary>Snecko.Glare：给每个活着的目标 1 层困惑。</summary>
+    private static bool SneckoGlare(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyFromMonster<ConfusedPower>(player, 1, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// Snecko.TailWhip：给每个活着的目标 2 层易伤，**A9 及以上**再加 2 层虚弱。
+    /// 源码那一支写的是内联的 <c>AscensionHelper.HasAscension(A9)</c>（整局不变），这里照同一判据。
+    /// </summary>
+    private static bool SneckoTailWhip(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        if (AfpReflection.HasAscension(9))
+            combat.ApplyFromMonster<WeakPower>(player, 2, move.Owner);
+        combat.ApplyFromMonster<VulnerablePower>(player, 2, move.Owner);
+        return true;
     }
 
     /// <summary>Bear.BearHug：给每个活着的目标 <c>-DexReduction</c> 点敏捷。</summary>
