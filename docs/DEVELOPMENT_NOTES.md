@@ -1,5 +1,24 @@
 # CombatSolver 开发笔记与未来构想
 
+## 未发布：往昔之章适配的登记名命名空间修复与离线门禁（2026-09-21）
+
+- 问题包 `f9350de8…`（`ACTSFROMTHEPAST-SMALL_SLIMES_WEAK`，0.43.2）里适配启动自检失败、一个条目都没登记，
+  求解器在第一幕小型史莱姆战斗的第一个 `EndTurn` 候选上抛
+  `PredictionUnsupportedException: ActsFromThePast.AcidSlimeMedium … MOVE_BRANCH`，整场没有路线。
+- 根因是适配层用平铺全名去找对方的能力、病症与第三幕怪物：往昔之章把它们放在
+  `ActsFromThePast.Powers` / `ActsFromThePast.Afflictions` / `ActsFromThePast.Acts.TheBeyond.Enemies`。
+  当天 18:39 起的第一幕收尾与第二、三幕批次第一次把这些名字交给查找，自检于是必然失败；
+  「自检不过就一个条目都不登记」的纪律把已经写好的 `MOVE_BRANCH` 一起挡掉，症状才落在第一幕史莱姆上。
+- `AfpReflection` 改为按用途分入口：`RequireMonster`（平铺或第三幕，要求唯一命中）、
+  `RequirePowerType`、`RequireAfflictionType`；只拿简单名的 `RequireOverride`／`RequireConst`
+  走唯一命中的 `ResolveDeclaredType`。失败信息同时给出「试过的命名空间」与「实际在哪个命名空间」。
+- 新增离线门禁 [往昔之章适配登记名核对](../tools/AdapterTypeNameChecks/README.md)：不启动游戏，
+  对着已安装程序集的元数据核对每个登记名、每条 `RequireOverride` 形状与每个钉死常量；
+  对改前源码报 23 条名字失败，对修复后源码通过。证据与未验证项见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.7。
+- 两个适配 manifest 的 author 字段统一为 `pknigh`（原为 `Torch`）；求解器本体、搜索、部署与
+  玩家可见行为均未改动。
+
 ## 未发布：第三幕首领觉醒者（`AwakenedOne`）与本体新增「死亡后重生到新阶段」入口（2026-09-21）
 
 - 新增登记入口 `ThirdPartyAdapterRegistry.RegisterRespawnPower(Power 类型名, 重生行动 Id, 待复活血量成员名, 处理器)`：

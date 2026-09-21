@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    往昔之章适配的「登记名核对」：不启动游戏、不加载任何 Mod 程序集，
+    只按 PE 元数据枚举已安装的 ActsFromThePast.dll，核对适配源码里每个
+    AfpReflection.Require* 声明都能在预期命名空间里唯一命中。
+
+    2026-09-21 的问题包 f9350de8… 就是这类漂移：适配层用平铺全名找能力与第三幕怪物，
+    对方实际把它们放在 ActsFromThePast.Powers / ActsFromThePast.Acts.TheBeyond.Enemies，
+    自检在第一个能力上失败、整批登记被挡掉，往昔之章遭遇整场搜索失败。
+
+    命令行用法与参数见同目录 README.md。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>

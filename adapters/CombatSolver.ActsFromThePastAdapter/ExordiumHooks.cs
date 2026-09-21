@@ -56,12 +56,12 @@ internal static class ExordiumHooks
         // --- 已复核：只有表现层副作用 ---
         // FungiBeast.BeforeDeath：CreatureNode 与 NSporeImpactVfx.Create，加一个 Godot 定时器播粒子，
         // 没有命令、没有数值／状态／RNG 读写。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.FungiBeast"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("FungiBeast"));
         // Cultist.BeforeDeath：PlayDeathSfx（Rng.Chaotic 抽音效编号）+ 条件式台词气泡 + Cmd.Wait(2.5)
         // 的动画等待，不下命令、不读不写战斗状态。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Cultist"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Cultist"));
         // Hexaghost.AfterDeath：_visuals.HideAllOrbs/Dispose 与 NGame.ScreenShake，纯表现。
-        AfterDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Hexaghost"));
+        AfterDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Hexaghost"));
     }
 
     /// <summary>

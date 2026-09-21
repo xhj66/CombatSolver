@@ -184,21 +184,21 @@ internal static class BeyondMoveEffects
         _spikerBuffAmount = AfpReflection.RequireConst("Spiker", "BuffAmount", 2);
         // ConstrictAmount 是 A9 分支的运行期属性（没有可钉的常量），所以它走静态数值成员：
         // 适配层的自检只核对类型与两个钩子的签名，数值由根捕获读一次。
-        _constrictedPowerType = AfpReflection.RequireType("ActsFromThePast.ConstrictedPower");
+        _constrictedPowerType = AfpReflection.RequirePowerType("ConstrictedPower");
         _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterSideTurnEnd", 3);
         _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterDeath", 4);
         _giantHeadIncrementDmg = AfpReflection.RequireConst("GiantHead", "IncrementDmg", 5);
         _giantHeadGlareDuration = AfpReflection.RequireConst("GiantHead", "GlareDuration", 1);
-        _snakeDaggerType = AfpReflection.RequireType("ActsFromThePast.SnakeDagger");
+        _snakeDaggerType = AfpReflection.RequireMonster("SnakeDagger");
         ExploderCountdown = AfpReflection.RequireConst("Exploder", "ExplosiveCountdown", 3);
         _donuCircleStrengthAmount = AfpReflection.RequireConst("Donu", "CircleStrengthAmount", 3);
-        _platedArmorType = AfpReflection.RequireType("ActsFromThePast.PlatedArmorPower");
+        _platedArmorType = AfpReflection.RequirePowerType("PlatedArmorPower");
         _ = AfpReflection.RequireOverride("PlatedArmorPower", "BeforeSideTurnStart", 4);
         _ = AfpReflection.RequireOverride("PlatedArmorPower", "BeforeSideTurnEndEarly", 3);
         _ = AfpReflection.RequireOverride("PlatedArmorPower", "AfterDamageReceived", 6);
         _decaProtectBlock = AfpReflection.RequireConst("Deca", "ProtectBlock", 16);
         _decaProtectPlatedArmor = AfpReflection.RequireConst("Deca", "ProtectPlatedArmorAmount", 3);
-        _malleableType = AfpReflection.RequireType("ActsFromThePast.MalleablePower");
+        _malleableType = AfpReflection.RequirePowerType("MalleablePower");
         _ = AfpReflection.RequireOverride("MalleablePower", "AfterDamageReceived", 6);
         _ = AfpReflection.RequireOverride("MalleablePower", "AfterAttack", 2);
         _ = AfpReflection.RequireOverride("MalleablePower", "AfterSideTurnEnd", 3);
@@ -208,47 +208,47 @@ internal static class BeyondMoveEffects
             ?? throw new InvalidOperationException(
                 "ActsFromThePast.MalleablePower._pendingBlock 不存在，往昔之章版本可能已变动。");
         _snakePlantDebuffAmount = AfpReflection.RequireConst("SnakePlant", "DebuffAmount", 2);
-        _stasisPowerType = AfpReflection.RequireType("ActsFromThePast.StasisPower");
+        _stasisPowerType = AfpReflection.RequirePowerType("StasisPower");
         _ = AfpReflection.RequireOverride("StasisPower", "BeforeDeath", 1);
-        _bronzeOrbType = AfpReflection.RequireType("ActsFromThePast.BronzeOrb");
+        _bronzeOrbType = AfpReflection.RequireMonster("BronzeOrb");
         _shelledParasiteFellFrail = AfpReflection.RequireConst("ShelledParasite", "FellFrailAmount", 2);
-        _torchHeadType = AfpReflection.RequireType("ActsFromThePast.TorchHead");
-        _gremlinMadType = AfpReflection.RequireType("ActsFromThePast.GremlinMad");
-        _gremlinSneakyType = AfpReflection.RequireType("ActsFromThePast.GremlinSneaky");
-        _gremlinFatType = AfpReflection.RequireType("ActsFromThePast.GremlinFat");
-        _gremlinShieldType = AfpReflection.RequireType("ActsFromThePast.GremlinShield");
-        _gremlinWizardType = AfpReflection.RequireType("ActsFromThePast.GremlinWizard");
+        _torchHeadType = AfpReflection.RequireMonster("TorchHead");
+        _gremlinMadType = AfpReflection.RequireMonster("GremlinMad");
+        _gremlinSneakyType = AfpReflection.RequireMonster("GremlinSneaky");
+        _gremlinFatType = AfpReflection.RequireMonster("GremlinFat");
+        _gremlinShieldType = AfpReflection.RequireMonster("GremlinShield");
+        _gremlinWizardType = AfpReflection.RequireMonster("GremlinWizard");
         MonsterRngSupport.VerifyShape();
-        _flightPowerType = AfpReflection.RequireType("ActsFromThePast.FlightPower");
+        _flightPowerType = AfpReflection.RequirePowerType("FlightPower");
         _ = AfpReflection.RequireOverride("FlightPower", "BeforeSideTurnStart", 4);
         _ = AfpReflection.RequireOverride("FlightPower", "AfterDamageReceived", 6);
         _ = AfpReflection.RequireOverride("FlightPower", "AfterRemoved", 1);
         _byrdCawStrength = AfpReflection.RequireConst("Byrd", "CawStrength", 1);
         _nemesisBurnAmount = AfpReflection.RequireConst("Nemesis", "BurnAmount", 5);
-        _fadingPowerType = AfpReflection.RequireType("ActsFromThePast.FadingPower");
-        _shiftingPowerType = AfpReflection.RequireType("ActsFromThePast.ShiftingPower");
-        _shiftingStrengthDownType = AfpReflection.RequireType("ActsFromThePast.ShiftingStrengthDownPower");
+        _fadingPowerType = AfpReflection.RequirePowerType("FadingPower");
+        _shiftingPowerType = AfpReflection.RequirePowerType("ShiftingPower");
+        _shiftingStrengthDownType = AfpReflection.RequirePowerType("ShiftingStrengthDownPower");
         _ = AfpReflection.RequireOverride("FadingPower", "BeforeSideTurnEndEarly", 3);
         _ = AfpReflection.RequireOverride("ShiftingPower", "AfterDamageReceived", 6);
         _transientIncrementDamage = AfpReflection.RequireConst("Transient", "IncrementDmg", 10);
-        _asleepLagavulinType = AfpReflection.RequireType("ActsFromThePast.AsleepLagavulinPower");
+        _asleepLagavulinType = AfpReflection.RequirePowerType("AsleepLagavulinPower");
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "AfterDamageReceived", 6);
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "BeforeSideTurnStart", 4);
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "BeforeSideTurnEndVeryEarly", 3);
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "AfterSideTurnEnd", 3);
-        _reactivePowerType = AfpReflection.RequireType("ActsFromThePast.ReactivePower");
+        _reactivePowerType = AfpReflection.RequirePowerType("ReactivePower");
         _ = AfpReflection.RequireOverride("ReactivePower", "AfterDamageReceived", 6);
         _writhingNormalDebuff = AfpReflection.RequireConst("WrithingMass", "NormalDebuffAmount", 2);
-        _timeWarpPowerType = AfpReflection.RequireType("ActsFromThePast.TimeWarpPower");
+        _timeWarpPowerType = AfpReflection.RequirePowerType("TimeWarpPower");
         _ = AfpReflection.RequireOverride("TimeWarpPower", "AfterCardPlayed", 2);
         _timeEaterDebuffTurns = AfpReflection.RequireConst("TimeEater", "DebuffTurns", 1);
         _timeEaterSlimedCount = AfpReflection.RequireConst("TimeEater", "SlimedCount", 2);
-        _drawReductionType = AfpReflection.RequireType("ActsFromThePast.DrawReductionPower");
+        _drawReductionType = AfpReflection.RequirePowerType("DrawReductionPower");
         _ = AfpReflection.RequireOverride("DrawReductionPower", "ModifyHandDraw", 2);
         _ = AfpReflection.RequireOverride("DrawReductionPower", "AfterSideTurnEnd", 3);
-        _modeShiftType = AfpReflection.RequireType("ActsFromThePast.ModeShiftPower");
+        _modeShiftType = AfpReflection.RequirePowerType("ModeShiftPower");
         _ = AfpReflection.RequireOverride("ModeShiftPower", "AfterDamageReceived", 6);
-        _sharpHideType = AfpReflection.RequireType("ActsFromThePast.SharpHidePower");
+        _sharpHideType = AfpReflection.RequirePowerType("SharpHidePower");
         _ = AfpReflection.RequireOverride("SharpHidePower", "BeforeCardPlayed", 1);
         _ = AfpReflection.RequireOverride("SharpHidePower", "AfterCardPlayed", 2);
         // 守护者本体：四个数值走常量核对（形态切换的两个数值也钉在这里），行动回调的顺序见本文件
@@ -261,7 +261,7 @@ internal static class BeyondMoveEffects
         // 黑暗精灵（Darkling）：LifeLinkPower 是原版 ReattachPower 的逐行复制品（同一套 isReviving 内部数据、
         // 同一个「队友里还有活人就保留尸体」判据），所以走本体的 RegisterRevivePower ── 五个钩子逐个核对，
         // 行动 Id 就是状态机里写死的 DEAD_MOVE／REATTACH_MOVE。
-        _lifeLinkType = AfpReflection.RequireType("ActsFromThePast.LifeLinkPower");
+        _lifeLinkType = AfpReflection.RequirePowerType("LifeLinkPower");
         _ = AfpReflection.RequireOverride("LifeLinkPower", "AfterDeath", 4);
         _ = AfpReflection.RequireOverride("LifeLinkPower", "ShouldAllowHitting", 1);
         _ = AfpReflection.RequireOverride("LifeLinkPower", "ShouldCreatureBeRemovedFromCombatAfterDeath", 1);
@@ -273,8 +273,8 @@ internal static class BeyondMoveEffects
         _darklingHardenBlock = AfpReflection.RequireConst("Darkling", "HardenBlock", 12);
         // 觉醒者（AwakenedOne）：一阶段死亡不是真死，走 REBIRTH 换血重生。三个 Power 逐个核对；
         // 它自己那两条分支（PHASE1_BRANCH／PHASE2_BRANCH）在 BeyondBranchResolvers 里。
-        _unawakenedType = AfpReflection.RequireType("ActsFromThePast.UnawakenedPower");
-        _curiosityType = AfpReflection.RequireType("ActsFromThePast.CuriosityPower");
+        _unawakenedType = AfpReflection.RequirePowerType("UnawakenedPower");
+        _curiosityType = AfpReflection.RequirePowerType("CuriosityPower");
         _ = AfpReflection.RequireOverride("UnawakenedPower", "AfterDeath", 4);
         _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldAllowHitting", 1);
         _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldStopCombatFromEnding", 0);
@@ -333,7 +333,7 @@ internal static class BeyondMoveEffects
         // NOMNOMNOM_MULTI 的段数是 TurnCount / 2 现算的（NOMNOMNOM_SINGLE 是常量 5，已在常量表里）。
         ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("Maw", "NOMNOMNOM_MULTI", MawNomNomNom);
         // BeforeDeath 只有一句死亡音效，登记为忽略（名字带 Death，不登记会让整场给不出战损）。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Maw"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Maw"));
 
         // --- 巨头（GiantHead） ---
         // 开场 _count = 4（A8+）／5 与 1 层 SlowPower 都发生在 AfterAddedToRoom（已在根里）；
@@ -348,7 +348,7 @@ internal static class BeyondMoveEffects
         // IT_IS_TIME 的伤害是现算的：StartingDeathDmg - Count * IncrementDmg（Count 为负时继续变大）。
         ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("GiantHead", "IT_IS_TIME", GiantHeadItIsTime);
         // BeforeDeath 只有一句死亡音效，登记为忽略（名字带 Death，不登记会让整场给不出战损）。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.GiantHead"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("GiantHead"));
 
         // --- 蛇怪术士（Reptomancer） ---
         // 开场的 SPAWN_DAGGER 是初始行动（MoveState，不是分支）；它带来的匕首在 AfterAddedToRoom 里被
@@ -419,7 +419,7 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("BronzeAutomaton", "BOOST", BronzeAutomatonBoost);
         // BeforeDeath：震屏 + 杀掉存活队友。后半是**原版规则**（主敌死亡时杀掉存活的 secondary 队友，
         // 核心已镜像，球体都带 MinionPower），所以按「已复核无剩余玩法影响」登记为忽略。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.BronzeAutomaton"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("BronzeAutomaton"));
 
         // 球体：分支读写的 _usedStasis 进状态名单；SUPPORT_BEAM 要给正牌自动机加格挡；
         // STASIS 偷牌（被偷的牌存在预测状态里，球体死亡时由 StasisPower 的镜像归还）。
@@ -451,7 +451,7 @@ internal static class BeyondMoveEffects
             "LIFE_SUCK",
             ShelledParasiteLifeSuck);
         // BeforeDeath 是空重写（只有基类调用），登记为忽略（名字带 Death，不登记会让整场给不出战损）。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.ShelledParasite"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("ShelledParasite"));
 
         // --- 收集者（Collector，第二幕精英／首领级） ---
         // 开场 _turnsTaken=0／_ultUsed=false／_initialSpawn=true 与「火焰粒子循环」都在 AfterAddedToRoom
@@ -472,7 +472,7 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Collector", "REVIVE", CollectorRevive);
         // BeforeDeath：震屏 + 杀掉存活火炬头。后半是**原版规则**（主敌死亡时杀掉存活的 secondary 队友，
         // 火炬头都带 MinionPower，核心已镜像）⇒ 登记为忽略。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Collector"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Collector"));
 
         // --- 小鬼首领（GremlinLeader） ---
         // 开场给队友挂 MinionPower 在 AfterAddedToRoom（已在根里）；ENCOURAGE 的两个数值是 A9 运行期属性。
@@ -484,7 +484,7 @@ internal static class BeyondMoveEffects
         // 一次做完（逃跑＋摘 MinionPower）。摘掉 MinionPower 同时避免了「主敌死亡杀掉存活 secondary 队友」
         // 那条原版规则误杀它们——这正是源码的顺序。
         BeforeDeathMirrors.Register(
-            AfpReflection.RequireType("ActsFromThePast.GremlinLeader"),
+            AfpReflection.RequireMonster("GremlinLeader"),
             GremlinLeaderBeforeDeath);
 
         // --- 鸟（Byrd，与 §2.12 的史莱姆三件套同幕） ---
@@ -499,7 +499,7 @@ internal static class BeyondMoveEffects
         AfterDamageReceivedMirrors.Register(_flightPowerType, FlightPowerDamageReceived);
         ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("FlightPower", FlightPowerTurnStart);
         // BeforeDeath 只有一句死亡音效 ⇒ 登记为忽略（名字带 Death，不登记会让整场给不出战损）。
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Byrd"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Byrd"));
 
         // --- 复仇女神（Nemesis，第三幕） ---
         // 开场只有 Died 事件与火焰粒子（纯表现）；AfterPowerAmountChanged 也只改透明度。
@@ -512,7 +512,7 @@ internal static class BeyondMoveEffects
         // 它**自己**（怪物模型，不是 Power）重写了常规（非 Late）AfterSideTurnEnd：敌人回合末在
         // 「有无实体化」之间切换。这条走本轮新增的「非 Power 模型」入口。
         ThirdPartyAdapterRegistry.RegisterSideTurnEndModel("Nemesis", NemesisSideTurnEnd);
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Nemesis"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Nemesis"));
 
         // --- 瞬逝者（Transient，第三幕） ---
         // 开场挂 FadingPower（A8+ 6／否则 5）与 1 层 ShiftingPower 在 AfterAddedToRoom（已在根里）。
@@ -644,7 +644,7 @@ internal static class BeyondMoveEffects
             GuardianBeginTwinSlam);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Guardian", "TWIN_SLAM", GuardianEndTwinSlam);
         // BeforeDeath：死亡时如果正好在一次攻击过程中，按尖刺外壳的层数给攻击者补一刀（Unpowered）。
-        BeforeDeathMirrors.Register(AfpReflection.RequireType("ActsFromThePast.Guardian"), GuardianBeforeDeath);
+        BeforeDeathMirrors.Register(AfpReflection.RequireMonster("Guardian"), GuardianBeforeDeath);
 
         // --- 黑暗精灵（Darkling，第三幕） ---
         // 首回合标记（选择函数会写它，必须随分支 Fork 并进指纹）与遭遇布点上下来的序号（整场不变）。

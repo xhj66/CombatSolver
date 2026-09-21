@@ -1,5 +1,25 @@
 # CombatSolver 测试清单
 
+## 未发布：往昔之章适配登记名命名空间修复与离线门禁（2026-09-21）
+
+- `CombatSolver-AFTP` Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）：
+  `dotnet build adapters\CombatSolver.ActsFromThePastAdapter\CombatSolver.ActsFromThePastAdapter.csproj -c Release -p:CopyModOnBuild=false`。
+- 新离线门禁 `tools/AdapterTypeNameChecks`（独立进程，不启动游戏、不加载 Mod 程序集，只读 PE 元数据）：
+  对已安装 `ActsFromThePast.dll`（manifest 1.0.5）输出
+  `ADAPTER_TYPE_NAMES_OK …\workshop\content\2868840\3746969593\ActsFromThePast.dll monsters=28 powers=18 afflictions=1 exact=3 memberTypes=103 overrides=59 consts=44 declaredTypes=897`；
+  同一门禁对改前源码（`1a1760b` 的 `adapters/CombatSolver.ActsFromThePastAdapter`）输出
+  `ADAPTER_TYPE_NAMES_FAILED count=23`，逐条列出平铺名找不到的能力与第三幕怪物。
+- 结构门禁 `pwsh -NoProfile -File tools/verify-refactor-boundaries.ps1` 输出
+  `REFACTOR_BOUNDARIES_OK search_files=205`。
+- 关键判断：① 失败原因是命名空间而不是对方改版——1.0.5 元数据里 `EntangledPower` 在
+  `ActsFromThePast.Powers`、`EntangledOriginal` 在 `ActsFromThePast.Afflictions`、17 只第三幕怪物在
+  `ActsFromThePast.Acts.TheBeyond.Enemies`，而适配原先只按平铺全名查找；② 「自检不过一个条目都不登记」
+  把已经写好的 `AcidSlimeMedium.MOVE_BRANCH` 一起挡掉，所以症状先落在第一幕史莱姆；
+  ③ 01:06 的历史问题包（`SpireField.Get` 的 `ArgumentException` 来自适配登记过的 `Slimed` 补丁路径）
+  证明适配当天早些时候还能登记成功，这是当天引入的回归。
+- **未验证**：没有启动游戏，未跑该问题包的检查点恢复／搜索／部署，也没有实机复核自检通过；
+  门禁只核对名字、重写形状与常量，不验证分支语义或行动效果是否正确。
+
 ## 未发布：第三幕首领觉醒者（`AwakenedOne`，最后一只）与本体新增「死亡后重生到新阶段」入口（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

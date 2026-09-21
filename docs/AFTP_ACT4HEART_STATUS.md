@@ -758,8 +758,8 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 | `PlatedArmorPower.BeforeSideTurnEndEarly` | `side == Owner.Side` 时按层数获得 `Unpowered` 格挡 | `BeforeSideTurnEndMirrors.RegisterEarly(类型, …)`（既有入口） |
 | `PlatedArmorPower.AfterDamageReceived` | 持有者吃到未被格挡的 `Move` 伤害（非 `Unpowered`）时减 1 层；层数归零且持有者是**甲壳寄生虫**时再调 `OnArmorBreak()` | `AfterDamageReceivedMirrors.Register(类型, …)`：减层用效果槽的负层数 Apply；**`OnArmorBreak` 那条按纪律显式失败**（抛 `PredictionUnsupportedException`），等 `ShelledParasite` 适配时再接上，而不是静默跳过 |
 
-自检用 `AfpReflection.RequireOverride` 把这三个重写的参数个数（4／3／6）钉死，类型用
-`RequireType("ActsFromThePast.PlatedArmorPower")` 解析。
+自检用 `AfpReflection.RequireOverride` 把这三个重写的参数个数（4／3／6）钉死，类型走
+`AfpReflection.RequirePowerType("PlatedArmorPower")`。
 
 **未验证**：没有在游戏内打过「戴卡与多努」遭遇，第 1 回合的补格挡、每回合的镀甲格挡、受击减层与
 2 张 Dazed 的入堆位置都**未实机验证**；也没有最小差分夹具。`OnArmorBreak` 那条路径本轮只会显式失败。
@@ -777,7 +777,7 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 | `AfterAttack` | 只要累计值 > 0：换成 `Unpowered` 格挡并清零（**对「是谁打的」不加条件**，任何攻击命令都会兑现） | 新增 `AfterAttackMirrors.Register(Type, handler)`（本体的第三方入口）＋ `MalleableAfterAttack` |
 | `AfterSideTurnEnd`（**非 Late**） | 自己那一方回合末：先兑现剩余累计值，再把层数回滚到施加时的 `BaseAmount` | `RegisterSideTurnEndPower("MalleablePower", …)`；回滚读 `DynamicVars["BaseAmount"]`（AFTP 的 `AfterApplied` 会在实机侧把它设成施加时的层数，规范默认值同样是 3，蛇草只在开场施加一次） |
 
-自检：`RequireType("ActsFromThePast.MalleablePower")` ＋ `RequireOverride` 钉住三个重写（6／2／3 参），
+自检：`AfpReflection.RequirePowerType("MalleablePower")` ＋ `RequireOverride` 钉住三个重写（6／2／3 参），
 并用反射取 `_pendingBlock` 字段，字段不在就**拒绝登记**。
 
 **未验证**：没有在游戏内打过「蛇草」遭遇（本体还没适配），可塑的累加／兑现／回滚三条都**未实机验证**；
@@ -966,7 +966,7 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 | `ShiftingPower.AfterDamageReceived` | 持有者挨到 `TotalDamage > 0` 的伤害 ⇒ 按这个数值给自己叠一层 `ShiftingStrengthDownPower`（负数临时力量，回合末恢复） | `AfterDamageReceivedMirrors.Register(类型, …)`：`combat.ApplyTemporaryStrengthLoss(ShiftingStrengthDownPower 类型, owner, TotalDamage, owner, null)` |
 
 自检用 `RequireOverride` 钉住 `FadingPower.BeforeSideTurnEndEarly`（3 参）与 `ShiftingPower.AfterDamageReceived`
-（6 参），三个类型都走 `RequireType`。
+（6 参），三个类型都走 `AfpReflection.RequirePowerType`。
 
 **未验证**：没有在游戏内打过「瞬逝者」遭遇，伤害递增曲线、Fading 的最后一击、挨打叠的负力量与回合末恢复
 都**未实机验证**；也没有最小差分夹具。
@@ -1133,7 +1133,7 @@ TWIN_SLAM 三次形态往返）、尖刺外壳的两处伤害（出攻击牌与�
 
 本批新增一个登记入口把这套规范化对第三方开放（`RegisterCardAfflictionSource(Power 类型名, 病症 Type, 牌型?)`，
 文档见 [第三方适配手册](THIRD_PARTY_ADAPTERS.md) §2.13），AFTP 侧登记为
-`("EntangledPower", ActsFromThePast.EntangledOriginal, CardType.Attack)`。
+`("EntangledPower", AfpReflection.RequireAfflictionType("EntangledOriginal"), CardType.Attack)`。
 
 | 行动／钩子 | 源码（`ActsFromThePast`） | 适配 |
 | --- | --- | --- |
@@ -1403,11 +1403,51 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 同样 `modeled_damage_exact=False`，而它的 `combat_ended_turn=10` 说明这两件事互不影响。
 要让带条件分支的战斗升到「高可信度」，需要让预测器能推进分支状态——那是求解器本体的改动。
 
+### 3.7 运行期回归：登记名命名空间漂移把整批登记挡掉（2026-09-21）
+
+问题包 `f9350de8…`（`ACTSFROMTHEPAST-SMALL_SLIMES_WEAK`，求解器 0.43.2）里求解器一场都没有算出路线。
+进程日志第一屏是
+
+```
+[CombatSolver-AFTP] 自检失败，本次不登记任何条目：ActsFromThePast.EntangledPower 不存在，往昔之章版本可能已变动。
+```
+
+随后 `SEARCH_FAILURE` 的根因是
+`第三方怪物 ActsFromThePast.AcidSlimeMedium 的分支状态 MOVE_BRANCH 还没有预测实现`。
+
+- **不是对方改版。** 用 PE 元数据枚举已安装的 `ActsFromThePast.dll`（manifest 1.0.5，1130 个 typedef）
+  后确认：能力都在 `ActsFromThePast.Powers`（`EntangledPower` 是
+  `ActsFromThePast.Powers.EntangledPower`），病症在 `ActsFromThePast.Afflictions`，
+  第三幕怪物在 `ActsFromThePast.Acts.TheBeyond.Enemies`；只有第一、二幕怪物、
+  `ClassicSlimedTracker` 与配置类是平铺的 `ActsFromThePast`。
+- **是适配层用平铺全名去找它们。** `AfpReflection` 原先只有
+  `RequireType("ActsFromThePast.<名字>")` 一种查找；18:39 起的塔蔓／多努／戴卡…
+  批次第一次把能力名与第三幕怪物交给它。逐项核对后，适配实际用到的名字里有 **42 个**
+  （24 个能力、1 个病症、17 只第三幕怪物）在平铺命名空间下不存在，落在 47 个调用点上。
+- **后果被「全有或全无」放大。** `AdapterEntry.Initialize` 的纪律是自检不过就一个条目都不登记，
+  于是连本来已经写好的 `AcidSlimeMedium.MOVE_BRANCH` 也一起消失，第一幕史莱姆战斗整场失败。
+  01:06 那份心脏问题包里适配**还是登记成功**的（`SpireField.Get` 的 `ArgumentException` 只可能来自
+  适配登记过的 `Slimed` 补丁路径），所以这是一次当天引入的回归，不是长期缺口。
+- **修法。** `AfpReflection` 改按用途分入口——`RequireMonster`（平铺或第三幕，要求唯一命中）、
+  `RequirePowerType`、`RequireAfflictionType`；`RequireOverride`／`RequireConst` 这类只拿到简单名的
+  登记走 `ResolveDeclaredType`（怪物 → 能力 → 病症，同样要求唯一命中）。失败信息改为同时列出
+  「试过的命名空间」与「实际在哪个命名空间」，下次再漂移时一眼能分辨「名字写错」与「对方改版」。
+- **离线门禁。** 新增 [`tools/AdapterTypeNameChecks`](../../tools/AdapterTypeNameChecks/README.md)：
+  不启动游戏，按同一套口径把每个登记名、每条 `RequireOverride` 形状与每个钉死常量对着已安装程序集的
+  元数据核一遍。
+- **实测。** 修复后 `CombatSolver-AFTP` Release 构建 0 error；门禁对已安装 1.0.5 输出
+  `ADAPTER_TYPE_NAMES_OK … monsters=28 powers=18 afflictions=1 exact=3 overrides=59 consts=44`；
+  同一门禁对改前源码输出 `ADAPTER_TYPE_NAMES_FAILED count=23`（平铺名字找不到）。
+- **未验证。** 本轮没有启动游戏：适配在实机里真正登记成功、以及该遭遇能算出路线，仍须在游戏内复核。
+  原包 `replay/current/recording/events.jsonl` 为空、只有战前存档，可按 §5.2 的口径从 `start` 恢复。
+
 ---
 
 ## 4. 下一步（按优先级）
 
 1. **运行期验证**：两个适配目前只过了编译与自检路径复核，尚**未在游戏里跑通**。
+   2026-09-21 又暴露了一次登记名漂移回归（§3.7）：命名空间问题已修，离线门禁通过，
+   但「适配加载后自检通过并真的登记成功」仍要由同一局游戏复核。
    需要一局能走到 Act 4 / 心脏，核对：心脏三轮循环的分支、死亡节拍的反伤、
    无敌封顶后的截断，以及盾兵球位分支的抽样次数。Act4Heart 已作为创意工坊条目安装，
    具备运行期验证条件。

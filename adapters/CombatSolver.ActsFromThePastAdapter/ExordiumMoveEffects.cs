@@ -94,8 +94,8 @@ internal static class ExordiumMoveEffects
         GremlinWizardChargeLimit = AfpReflection.RequireConst("GremlinWizard", "ChargeLimit", 3);
         // 强盗红 ENTANGLE 的两个第三方模型：Power 负责「在时给攻击牌挂病症、回合末自己消失」，
         // 病症负责给牌加 Unplayable 关键词。四个钩子逐条核对，改了就往昔之章的版本需要重新对。
-        _entangledPowerType = AfpReflection.RequireType("ActsFromThePast.EntangledPower");
-        _entangledOriginalType = AfpReflection.RequireType("ActsFromThePast.EntangledOriginal");
+        _entangledPowerType = AfpReflection.RequirePowerType("EntangledPower");
+        _entangledOriginalType = AfpReflection.RequireAfflictionType("EntangledOriginal");
         _ = AfpReflection.RequireOverride("EntangledPower", "AfterApplied", 2);
         _ = AfpReflection.RequireOverride("EntangledPower", "AfterCardEnteredCombat", 1);
         _ = AfpReflection.RequireOverride("EntangledPower", "AfterSideTurnEnd", 3);
@@ -754,10 +754,10 @@ internal static class ExordiumMoveEffects
             (SpikeSlimeLargeType(), "spike_large", true),
             (AcidSlimeLargeType(), "acid_large", true));
 
-    private static Type AcidSlimeMediumType() => AfpReflection.RequireType("ActsFromThePast.AcidSlimeMedium");
-    private static Type SpikeSlimeMediumType() => AfpReflection.RequireType("ActsFromThePast.SpikeSlimeMedium");
-    private static Type AcidSlimeLargeType() => AfpReflection.RequireType("ActsFromThePast.AcidSlimeLarge");
-    private static Type SpikeSlimeLargeType() => AfpReflection.RequireType("ActsFromThePast.SpikeSlimeLarge");
+    private static Type AcidSlimeMediumType() => AfpReflection.RequireMonster("AcidSlimeMedium");
+    private static Type SpikeSlimeMediumType() => AfpReflection.RequireMonster("SpikeSlimeMedium");
+    private static Type AcidSlimeLargeType() => AfpReflection.RequireMonster("AcidSlimeLarge");
+    private static Type SpikeSlimeLargeType() => AfpReflection.RequireMonster("SpikeSlimeLarge");
 
     /// <summary>
     /// 复刻 AFTP 三个 <c>Split</c> 的共同骨架：先按当前血量杀掉自己，再按遭遇布点表的前缀规则挑空位，

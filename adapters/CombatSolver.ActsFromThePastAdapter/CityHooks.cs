@@ -51,10 +51,10 @@ internal static class CityHooks
         BeforeSideTurnEndMirrors.RegisterEarly(_metallicize, HandleMetallicizeTurnEnd);
         AfterCardPlayedMirrors.Register(_hex, HandleHexCardPlayed);
 
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.SphericGuardian"));
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Snecko"));
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Chosen"));
-        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Champ"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("SphericGuardian"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Snecko"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Chosen"));
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireMonster("Champ"));
     }
 
     /// <summary>
