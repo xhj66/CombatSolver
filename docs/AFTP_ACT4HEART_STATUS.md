@@ -689,6 +689,22 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编译阅读）；也没有最小差分夹具。
 ---
 
+### 2.25 第三幕：蛇怪术士（`Reptomancer`）与它召唤的蛇匕首
+
+`Reptomancer` 与 §2.19 的 `SnakeDagger` 是同一场遭遇：初始行动就是 `SPAWN_DAGGER`，靠召唤把匕首补满。
+
+| 部位 | 源码（`ActsFromThePast.Reptomancer`） | 适配 |
+| --- | --- | --- |
+| 开场 | 初始状态是 `SPAWN_DAGGER`（MoveState，不是分支）；`AfterAddedToRoom` 给**随遭遇带来的**匕首挂 `MinionPower` | **不需要代码**：都在根捕获之前，实机实例上已经是这样 |
+| `MOVE_BRANCH` | 抽 `NextInt(100)`；`< 33` 且上一步不是 `SNAKE_STRIKE` ⇒ `SNAKE_STRIKE`、否则**按区间重掷**；`< 66` 且最近没连出两次 `SPAWN_DAGGER` 且存活匕首 < 4 ⇒ `SPAWN_DAGGER`、否则 `SNAKE_STRIKE`；其余上一步不是 `BIG_BITE` ⇒ `BIG_BITE`、否则重掷。重掷是**递归**的，每次抽区间内的数（区间 33–99 / 0–65 会变） | `BeyondBranchResolvers.Reptomancer` ＋ `ReptomancerReroll`（区间与递归逐行照抄）；`CanSpawnDagger` 读模拟状态里队友的存活数。不写状态 → **已声明为纯读取** |
+| `SPAWN_DAGGER` | 按遭遇布点表里**除 `reptomancer` 之外**的空槽依次召唤，最多 2 只 `SnakeDagger`，每只挂 1 层 `MinionPower` | `ReptomancerSpawnDagger`：先按「存活队友的 `SlotName`」建占用集合，再 `MonsterSpawnSupport.SpawnByType(…, SnakeDagger 类型, slot, maxHpOverride: null, minion: true)`（`minion: true` 这条既有路径就负责挂 `MinionPower`） |
+| `SNAKE_STRIKE` | `MultiAttackIntent(SnakeStrikeDamage, 2)` ＋ `DebuffIntent(false)`，回调在两段攻击后给每个活着的目标 1 层虚弱 | 攻击侧由通用攻击循环按意图结算；效果侧 `ReptomancerSnakeStrike` 补虚弱 |
+| `BIG_BITE` | `SingleAttackIntent(BigBiteDamage)` | 已在常量表（纯攻击，无需效果） |
+
+**未验证**：没有在游戏内打过「蛇怪术士」遭遇，召唤的槽位选择、最多两只的上限、重掷区间与
+`SNAKE_STRIKE` 的虚弱都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -932,7 +948,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24，动态伤害）、Exploder |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24）、✔ Reptomancer（§2.25，按类型召唤）、Exploder |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
@@ -994,8 +1010,8 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 档 | 怪物 | 依据 |
 | --- | --- | --- |
-| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24） | 完整读过 |
-| 只缺「已有能力」的登记活 | `Reptomancer`（分支带重掷 + `SPAWN_DAGGER` 用已有的按类型生成入口 + 两个攻击） | 成员清单与常量攻击表；**尚未逐行读完**，动手前要按 §3.3 复核 |
+| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25） | 完整读过 |
+| 只缺「已有能力」的登记活 | —（第三幕这一档已清空；`Deca`/`Donu` 等仍在下一档） | — |
 | 卡在本体能力上 | `Exploder`：源码的 `EXPLODE` 用 **`CreatureCmd.Damage`（直伤）**而不是 `DamageCmd.Attack`，而它的 `DeathBlowIntent` 是攻击意图、会被通用攻击循环当攻击结算——要精确复刻就得有「这条第三方行动的意图伤害不由通用攻击循环结算」的入口；`Transient`：`ShiftingPower` 要给自己的 `TemporaryStrengthPower` 子类施加负力量（需要按 `Type` 施加临时力量的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪）；`Deca`/`Donu`：AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；`Maw`/`GiantHead`：`NOMNOMNOM_MULTI`/`IT_IS_TIME` 是 `Dynamic*AttackIntent`（动态攻击值已就绪，但两只都还要 `BeforeDeath` 与分支）；`Nemesis`：自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化；`WrithingMass`：分支用私有 RNG 抽行动；`Darkling`/`AwakenedOne`：复活/重生（`DEAD_MOVE`/`REATTACH_MOVE`/`REBIRTH` 与内部数据）；`TimeEater`：`TimeWarpPower` 的回合计数与 `HASTE` | 完整读过 `Exploder`／`Transient`／`Deca`／`OrbWalker`；其余为成员清单初判 |
 
 ---

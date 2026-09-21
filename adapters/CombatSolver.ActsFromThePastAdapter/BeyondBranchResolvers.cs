@@ -33,12 +33,13 @@ internal static class BeyondBranchResolvers
             SpireGrowth);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Maw", "MOVE_BRANCH", Maw);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GiantHead", "MOVE_BRANCH", GiantHead);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Reptomancer", "MOVE_BRANCH", Reptomancer);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead"];
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -50,6 +51,7 @@ internal static class BeyondBranchResolvers
         ("Spiker", "MOVE_BRANCH"),
         ("OrbWalker", "MOVE_BRANCH"),
         ("SpireGrowth", "MOVE_BRANCH"),
+        ("Reptomancer", "MOVE_BRANCH"),
     ];
 
     /// <summary>
@@ -184,6 +186,85 @@ internal static class BeyondBranchResolvers
         if (num < 50)
             return LastTwoMoves(log, "GLARE") ? "COUNT" : "GLARE";
         return LastTwoMoves(log, "COUNT") ? "GLARE" : "COUNT";
+    }
+
+    /// <summary>
+    /// Reptomancer.SelectNextMove：抽一次 <c>NextInt(100)</c>；`&lt; 33` 时上一步不是 SNAKE_STRIKE 就直接
+    /// SNAKE_STRIKE、否则<b>按重掷区间再抽</b>；`&lt; 66` 时最近没连出两次 SPAWN_DAGGER 且存活匕首少于 4
+    /// 就 SPAWN_DAGGER、否则 SNAKE_STRIKE；其余上一步不是 BIG_BITE 就 BIG_BITE、否则再重掷。
+    /// 重掷函数是**递归**的，每次抽的是区间内的数（区间每次不同），必须连同区间一起照抄。
+    /// </summary>
+    /// <remarks>
+    /// 它只读行动历史、rng 与模拟状态里队友的存活数（`CanSpawn`），不写任何东西，**已声明为纯读取**。
+    /// </remarks>
+    private static string Reptomancer(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        int num = rng.NextInt(100);
+        if (num < 33)
+        {
+            if (!LastMove(log, "SNAKE_STRIKE"))
+                return "SNAKE_STRIKE";
+            return ReptomancerReroll(monster, log, rng, combat, simulator, 33, 99);
+        }
+        if (num < 66)
+        {
+            if (!LastTwoMoves(log, "SPAWN_DAGGER") && CanSpawnDagger(monster, combat, simulator))
+                return "SPAWN_DAGGER";
+            return "SNAKE_STRIKE";
+        }
+        if (!LastMove(log, "BIG_BITE"))
+            return "BIG_BITE";
+        return ReptomancerReroll(monster, log, rng, combat, simulator, 0, 65);
+    }
+
+    /// <summary>Reptomancer.SelectFromReroll：区间内抽一次后走同一套三路判断，必要时继续递归重掷。</summary>
+    private static string ReptomancerReroll(
+        MonsterModel monster,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator,
+        int min,
+        int max)
+    {
+        int num = rng.NextInt(max - min + 1) + min;
+        if (num < 33)
+        {
+            if (!LastMove(log, "SNAKE_STRIKE"))
+                return "SNAKE_STRIKE";
+            return ReptomancerReroll(monster, log, rng, combat, simulator, 33, 99);
+        }
+        if (num < 66)
+        {
+            if (!LastTwoMoves(log, "SPAWN_DAGGER") && CanSpawnDagger(monster, combat, simulator))
+                return "SPAWN_DAGGER";
+            return "SNAKE_STRIKE";
+        }
+        if (!LastMove(log, "BIG_BITE"))
+            return "BIG_BITE";
+        return ReptomancerReroll(monster, log, rng, combat, simulator, 0, 65);
+    }
+
+    /// <summary>Reptomancer.CanSpawn：存活匕首（不含自己）少于 4 只。</summary>
+    private static bool CanSpawnDagger(
+        MonsterModel monster,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        int alive = 0;
+        foreach (Creature teammate in combat.GetTeammatesOf(monster.Creature))
+        {
+            if (teammate != monster.Creature && simulator.State.GetCreature(teammate).IsAlive)
+                alive++;
+        }
+        return alive < 4;
     }
 
     /// <summary>

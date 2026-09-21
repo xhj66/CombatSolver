@@ -1,5 +1,17 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕蛇怪术士（`Reptomancer`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.Reptomancer`（`< 33` / `< 66` / 其余三路、
+  两次 `ReptomancerReroll` 的区间 `33,99` 与 `0,65`、`CanSpawnDagger` 用的存活数判定）与纯读取声明、
+  `BeyondMoveEffects` 的 `RequireType("ActsFromThePast.SnakeDagger")`、
+  `ReptomancerSpawnDagger`（按存活队友 `SlotName` 建占用集合、跳过 `reptomancer`、最多 2 只、
+  `SpawnByType(..., minion: true)`）、`ReptomancerSnakeStrike`（虚弱 1 层）与两条登记全部在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 73,216 B；核心本轮未改）。
+- **未验证**：没有在游戏内打过「蛇怪术士」遭遇，召唤槽位、两只上限、重掷区间与 SNAKE_STRIKE 的虚弱
+  都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕巨头（`GiantHead`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

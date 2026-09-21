@@ -12,6 +12,14 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕蛇怪术士（`Reptomancer`）（2026-09-21）
+
+- 第三幕再补一只，与 §2.19 的 `SnakeDagger` 配成完整遭遇：分支 `MOVE_BRANCH` 的**递归重掷**
+  （每次在 33–99 / 0–65 区间里抽）与「存活匕首 < 4 才能召唤」逐行照抄，并声明为纯读取；
+  召唤走既有的按类型生成入口 `MonsterSpawnSupport.SpawnByType(..., minion: true)`
+  （占用集合按存活队友的 `SlotName` 建、跳过 `reptomancer` 槽、最多 2 只），
+  `SNAKE_STRIKE` 的攻击后补 1 层虚弱。开场带来的匕首与它们的 `MinionPower` 都在 `AfterAddedToRoom`
+  （已在根里），没有额外代码。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.25。
 ## 未发布：第三幕巨头（`GiantHead`）（2026-09-21）
 
 - 第三幕再补一只：`GiantHead`。开场 `_count = 4`（A8+）／5 与 1 层原版 `SlowPower` 都发生在

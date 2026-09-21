@@ -28,6 +28,7 @@ internal static class BeyondMoveEffects
         "SpireGrowth",
         "Maw",
         "GiantHead",
+        "Reptomancer",
     ];
 
     /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
@@ -61,6 +62,7 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterDeath", 4);
         _giantHeadIncrementDmg = AfpReflection.RequireConst("GiantHead", "IncrementDmg", 5);
         _giantHeadGlareDuration = AfpReflection.RequireConst("GiantHead", "GlareDuration", 1);
+        _snakeDaggerType = AfpReflection.RequireType("ActsFromThePast.SnakeDagger");
     }
 
     public static void RegisterAll()
@@ -125,6 +127,73 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("GiantHead", "IT_IS_TIME", GiantHeadItIsTime);
         // BeforeDeath 只有一句死亡音效，登记为忽略（名字带 Death，不登记会让整场给不出战损）。
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.GiantHead"));
+
+        // --- 蛇怪术士（Reptomancer） ---
+        // 开场的 SPAWN_DAGGER 是初始行动（MoveState，不是分支）；它带来的匕首在 AfterAddedToRoom 里被
+        // 挂上 MinionPower（已在根里）。这里要补的是战斗中召唤的那一步与 SNAKE_STRIKE 的虚弱。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Reptomancer", "SPAWN_DAGGER", ReptomancerSpawnDagger);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Reptomancer", "SNAKE_STRIKE", ReptomancerSnakeStrike);
+    }
+
+    /// <summary>AFTP 的蛇匕首类型（Reptomancer 召唤用）。</summary>
+    private static Type _snakeDaggerType = null!;
+
+    /// <summary>
+    /// Reptomancer.SpawnDagger：按遭遇布点表里**除 `reptomancer` 之外**的空槽依次召唤，最多 2 只；
+    /// 每只都挂 1 层原版 <c>MinionPower</c>（与源码一致，也由 <c>minion: true</c> 这条路做掉）。
+    /// </summary>
+    private static bool ReptomancerSpawnDagger(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        HashSet<string> occupied = [];
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (simulator.State.GetCreature(teammate).IsAlive && teammate.SlotName is { } occupiedSlot)
+                occupied.Add(occupiedSlot);
+        }
+        int spawned = 0;
+        foreach (string slot in combat.EncounterSlots)
+        {
+            if (spawned >= 2)
+                break;
+            if (string.Equals(slot, "reptomancer", StringComparison.Ordinal) || occupied.Contains(slot))
+                continue;
+            MonsterSpawnSupport.SpawnByType(
+                simulator,
+                combat,
+                move.Owner,
+                _snakeDaggerType,
+                slot,
+                maxHpOverride: null,
+                minion: true);
+            occupied.Add(slot);
+            spawned++;
+        }
+        return true;
+    }
+
+    /// <summary>Reptomancer.SnakeStrike：两段攻击由通用攻击循环结算，这里补攻击后给每个活着的目标 1 层虚弱。</summary>
+    private static bool ReptomancerSnakeStrike(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.Apply<WeakPower>(player, 1, move.Owner);
+        return true;
     }
 
     /// <summary>
