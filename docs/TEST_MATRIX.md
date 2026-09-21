@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕塔蔓（`SpireGrowth`）与 AFTP `ConstrictedPower`（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.SpireGrowth`（读 `combat.EffectivePowers()` 判
+  `ConstrictedPower`，两次「未缠绕」短路与 `NextInt(100)` 顺序照抄）与纯读取声明、
+  `RequireType("ActsFromThePast.ConstrictedPower")` + `RequireOverride("ConstrictedPower",
+  "AfterSideTurnEnd", 3)` / `("AfterDeath", 4)`、`RegisterStaticIntMembers("SpireGrowth",
+  "ConstrictAmount")`、`SpireGrowthConstrict`、`RegisterSideTurnEndPower("ConstrictedPower", …)`、
+  `AfterDeathMirrors.Register(ConstrictedPower, …)` 全部在场；部署产物与工作区构建哈希逐字节相同
+  （AFTP 69,632 B；核心本轮未改）。
+- 关键判据：AFTP 的缠绕是**它自己的** `ConstrictedPower`（不是原版 `ConstrictPower`），而核心对原版那条
+  的处理是按精确类型写死的补偿（位置在 `TriggerRegular` 之前），所以第三方类型两个钩子都要登记；
+  `AfterDeath` 那条名字带 «Death»，不登记会让整场给不出战损。玩家侧的常规回合末确实会调
+  `TriggerRegular(..., CombatSide.Player, players, …)`（`CorePowerSupport`），所以玩家身上的缠绕也会触发。
+- **未验证**：没有在游戏内打过「塔蔓」遭遇，每回合缠绕伤害、层数、施加者死亡时移除都**未实机验证**；
+  也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕球体行者（`OrbWalker`）——常规回合末入口第一家用户（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

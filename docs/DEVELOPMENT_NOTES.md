@@ -12,6 +12,21 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕塔蔓（`SpireGrowth`）与 AFTP `ConstrictedPower`（2026-09-21）
+
+- `SpireGrowth` 的缠绕**不是**原版 `ConstrictPower`，而是 AFTP 自己的 `ConstrictedPower`；核心对原版那条
+  的处理是按精确类型写死在 `CorePowerSupport` 里的补偿（位置在 `TriggerRegular` 之前），第三方类型落不进去。
+  所以这只怪要登记三块：`ConstrictAmount` 静态数值成员 + `CONSTRICT` 行动效果
+  （`combat.ApplyPower(ConstrictedPower 类型, player, 层数, owner)`）+ 那个 Power 的两个钩子。
+- Power 两个钩子：`AfterSideTurnEnd`（**非 Late**，`side == Owner.Side` 时按层数吃 `Unpowered` 伤害）走
+  上一轮的 `RegisterSideTurnEndPower`——顺带确认了玩家侧也会调
+  `TriggerRegular(..., CombatSide.Player, players, …)`，所以玩家身上的缠绕触发时点正确；
+  `AfterDeath`（施加者死亡且非「死亡被阻止」时移除自己）走 `AfterDeathMirrors.Register`，
+  这条名字带 «Death»，不登记会让整场战斗给不出战损。
+- 分支 `MOVE_BRANCH` 的两处短路（未缠绕且上一步不是 CONSTRICT ⇒ 不抽 RNG 直接缠绕）逐字照抄，
+  并登记为纯读取；自检用 `RequireOverride` 钉住 `ConstrictedPower` 两个重写的参数个数。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.22。
+
 ## 未发布：第三幕球体行者（`OrbWalker`）（2026-09-21）
 
 - 上一轮那个「常规（非 Late）`AfterSideTurnEnd`」入口的第一家用户：AFTP 的 `StrengthUpPower` 在自己

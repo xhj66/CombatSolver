@@ -4,7 +4,9 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
+using CombatSolver.Engine.InCombat.Mirrors.Hooks.Death;
 using CombatSolver.Engine.InCombat.Simulation;
 
 namespace CombatSolver.ActsFromThePastAdapter;
@@ -24,7 +26,14 @@ internal static class BeyondMoveEffects
         "SnakeDagger",
         "Spiker",
         "OrbWalker",
+        "SpireGrowth",
     ];
+
+    /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
+    private static Type _constrictedPowerType = null!;
+
+    /// <summary>SpireGrowth 每次缠绕的层数（AFTP <c>ConstrictAmount</c>，A9+ 12／否则 10）。</summary>
+    private static int _spireGrowthConstrictAmount;
 
     /// <summary>Repulsor 的 Daze 张数（AFTP <c>DazeAmount</c>）。</summary>
     private static int _repulsorDazeAmount;
@@ -38,6 +47,11 @@ internal static class BeyondMoveEffects
             AfpReflection.RequireMonsterType(typeName);
         _repulsorDazeAmount = AfpReflection.RequireConst("Repulsor", "DazeAmount", 2);
         _spikerBuffAmount = AfpReflection.RequireConst("Spiker", "BuffAmount", 2);
+        // ConstrictAmount 是 A9 分支的运行期属性（没有可钉的常量），所以它走静态数值成员：
+        // 适配层的自检只核对类型与两个钩子的签名，数值由根捕获读一次。
+        _constrictedPowerType = AfpReflection.RequireType("ActsFromThePast.ConstrictedPower");
+        _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterSideTurnEnd", 3);
+        _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterDeath", 4);
     }
 
     public static void RegisterAll()
@@ -65,6 +79,73 @@ internal static class BeyondMoveEffects
         // 自己那一方回合末按层数给自己加力量。开场的施加发生在 AfterAddedToRoom（已在根里），
         // 这里只登记它在回合末的行为——这也是本轮新入口的第一家用户。
         ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("StrengthUpPower", StrengthUpPowerTurnEnd);
+
+        // --- 塔蔓（SpireGrowth） ---
+        // CONSTRICT：给每个活着的玩家挂 ConstrictAmount 层 AFTP 自己的 ConstrictedPower；
+        // 那个 Power 的两个钩子分别登记成「自己那一方回合末按层数吃 Unpowered 伤害」与
+        // 「施加者死亡时移除自己」——后者是名字带 Death 的重写，不登记会让整场给不出战损。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SpireGrowth", "ConstrictAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SpireGrowth", "CONSTRICT", SpireGrowthConstrict);
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("ConstrictedPower", ConstrictedPowerTurnEnd);
+        AfterDeathMirrors.Register(_constrictedPowerType, ConstrictedPowerAfterDeath);
+    }
+
+    /// <summary>
+    /// SpireGrowth.Constrict：给每个活着的玩家挂 <c>ConstrictAmount</c> 层 AFTP <c>ConstrictedPower</c>。
+    /// </summary>
+    private static bool SpireGrowthConstrict(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.ApplyPower(
+            _constrictedPowerType,
+            player,
+            combat.GetMonsterStaticInt(move.Owner, "ConstrictAmount"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>ConstrictedPower.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末，
+    /// 持有者按层数吃一次 <c>Unpowered</c> 伤害。判据与源码逐字一致（<c>side == Owner.Side</c>）。
+    /// </summary>
+    private static void ConstrictedPowerTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = combat;
+        _ = participants;
+        if (side != power.Owner.Side)
+            return;
+        using (simulator.PushDamageSource(
+            CombatDamageSource.For(CombatDamageSourceKind.Power, "ConstrictedPower")))
+        {
+            simulator.Damage(power.Owner, power.Amount, ValueProp.Unpowered, null);
+        }
+    }
+
+    /// <summary>
+    /// AFTP <c>ConstrictedPower.AfterDeath</c>：**施加者**死亡且不是「死亡被阻止」时把自己移除。
+    /// </summary>
+    private static void ConstrictedPowerAfterDeath(AbstractModel model, AfterDeathMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.WasRemovalPrevented || !ReferenceEquals(context.Creature, power.Applier))
+            return;
+        ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("缠绕缺少可写的预测状态。");
+        effects.ApplyPower(_constrictedPowerType, power.Owner, -power.Amount, power.Applier);
     }
 
     /// <summary>

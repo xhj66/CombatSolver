@@ -27,11 +27,16 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Repulsor", "MOVE_BRANCH", Repulsor);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Spiker", "MOVE_BRANCH", Spiker);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("OrbWalker", "MOVE_BRANCH", OrbWalker);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "SpireGrowth",
+            "MOVE_BRANCH",
+            SpireGrowth);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
-    internal static readonly string[] RegisteredMonsterTypes = ["Repulsor", "Spiker", "OrbWalker"];
+    internal static readonly string[] RegisteredMonsterTypes =
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -42,7 +47,47 @@ internal static class BeyondBranchResolvers
         ("Repulsor", "MOVE_BRANCH"),
         ("Spiker", "MOVE_BRANCH"),
         ("OrbWalker", "MOVE_BRANCH"),
+        ("SpireGrowth", "MOVE_BRANCH"),
     ];
+
+    /// <summary>
+    /// SpireGrowth.SelectNextMove：先看**玩家身上有没有 AFTP 自己的 <c>ConstrictedPower</c>**
+    /// （源码取的是 <c>CombatState.Players.FirstOrDefault()</c>，本 Mod 只支持单人，所以「任一玩家」
+    /// 与「第一个玩家」等价）；没被缠绕且最近一步不是 CONSTRICT 就 **不抽 RNG** 直接缠绕；否则抽
+    /// <c>NextInt(100)</c>，50 以下且最近没连出两次 QUICK_TACKLE 就 QUICK_TACKLE；再判一次缠绕；
+    /// 再判最近没连出两次 SMASH 就 SMASH；否则 QUICK_TACKLE。
+    /// </summary>
+    /// <remarks>
+    /// 读的是**模拟状态**里的 Power（<c>combat.EffectivePowers()</c>），不是实机字段；
+    /// 这条分支不写任何状态，所以也登记为纯读取（预览在实机上跑同一份判据，读到的就是实机当前值）。
+    /// 「没被缠绕」那两次短路都发生在抽 RNG **之前/之间**，顺序必须保持。
+    /// </remarks>
+    private static string SpireGrowth(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = simulator;
+        bool constricted = combat.EffectivePowers().Any(power =>
+            power.Amount > 0
+            && power.Owner.Player != null
+            && string.Equals(power.GetType().Name, "ConstrictedPower", StringComparison.Ordinal));
+        if (!constricted && !LastMove(log, "CONSTRICT"))
+            return "CONSTRICT";
+        int num = rng.NextInt(100);
+        if (num < 50 && !LastTwoMoves(log, "QUICK_TACKLE"))
+            return "QUICK_TACKLE";
+        if (!constricted && !LastMove(log, "CONSTRICT"))
+            return "CONSTRICT";
+        if (!LastTwoMoves(log, "SMASH"))
+            return "SMASH";
+        return "QUICK_TACKLE";
+    }
 
     /// <summary>
     /// OrbWalker.SelectNextMove：先抽一次 RNG；40 以下时最近**连着两次**不是 CLAW 就 CLAW、否则 LASER；

@@ -633,6 +633,30 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 
 ---
 
+### 2.22 第三幕：塔蔓（`SpireGrowth`）与它自己的 `ConstrictedPower`
+
+`SpireGrowth` 是第一个需要**第三方 Power 两个钩子一起登记**的第三幕怪：它的缠绕不是原版的
+`ConstrictPower`，而是 AFTP 自己的 `ConstrictedPower`——核心对原版那一条的处理是**按精确类型写死**的
+补偿（`CorePowerSupport` 里 `GetAmount<ConstrictPower>` → `simulator.Damage(..., Unpowered, ...)`，
+位置在 `TriggerRegular` 之前），第三方类型落不进去，所以这里两件事都要显式登记。
+
+| 部位 | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `MOVE_BRANCH` | 先看**第一个玩家**身上有没有 `ConstrictedPower`；没被缠绕且最近一步不是 `CONSTRICT` ⇒ **不抽 RNG** 直接 `CONSTRICT`；否则抽 `NextInt(100)`，50 以下且最近没连出两次 `QUICK_TACKLE` ⇒ `QUICK_TACKLE`；再判一次缠绕；再判最近没连出两次 `SMASH` ⇒ `SMASH`；否则 `QUICK_TACKLE` | `BeyondBranchResolvers.SpireGrowth`（读模拟状态里的 Power；本 Mod 只支持单人，所以「任一玩家」≡「第一个玩家」）；不写状态，**已声明为纯读取** |
+| `CONSTRICT` | 给每个活着的目标挂 `ConstrictAmount` 层 `ConstrictedPower`（A9+ 12／否则 10） | `RegisterStaticIntMembers("SpireGrowth","ConstrictAmount")` ＋ `SpireGrowthConstrict`（`combat.ApplyPower(ConstrictedPower 类型, player, 层数, owner)`） |
+| `QUICK_TACKLE` / `SMASH` | `SingleAttackIntent(TackleDamage)` / `SingleAttackIntent(SmashDamage)` | 已在第二三幕常量表 |
+| `ConstrictedPower.AfterSideTurnEnd`（**非 Late**） | `side == Owner.Side` 时持有者按层数吃一次 `Unpowered` 伤害 | `RegisterSideTurnEndPower("ConstrictedPower", …)`（上一轮那个入口；`CorePowerSupport` 对**玩家侧**也会调 `TriggerRegular(..., CombatSide.Player, players, …)`，所以玩家身上的缠绕也会在正确的时点触发） |
+| `ConstrictedPower.AfterDeath` | 施加者死亡且**不是**「死亡被阻止」时把自己移除 | `AfterDeathMirrors.Register(类型, …)`：判据照抄，用 `ICombatPredictionEffectSink.ApplyPower(类型, owner, -层数, applier)` 移除（与核心既有的「负层数即移除」同一条写法）。**这条必须登记**：方法名带 «Death» 且未镜像时，整场战斗会给不出战损 |
+
+自检里用 `AfpReflection.RequireOverride("ConstrictedPower", "AfterSideTurnEnd", 3)` 与
+`("ConstrictedPower", "AfterDeath", 4)` 把两个重写的形状钉死，`ConstrictAmount` 是 A9 分支的运行期属性
+（没有可钉常量），走静态数值成员在根捕获时读一次。
+
+**未验证**：没有在游戏内打过「塔蔓」遭遇，缠绕的每回合伤害、层数来源、施加者死亡时的移除都**未实机验证**；
+也没有最小差分夹具。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -876,7 +900,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21，常规回合末入口的第一家用户）、Exploder |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22，自带 Power 两钩子）、Exploder |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
@@ -938,8 +962,8 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 档 | 怪物 | 依据 |
 | --- | --- | --- |
-| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21） | 完整读过 |
-| 只缺「已有能力」的登记活 | `SpireGrowth`（分支 + `QUICK_TACKLE`/`CONSTRICT`/`SMASH`，`ConstrictPower` 是原版）、`Reptomancer`（分支带重掷 + `SPAWN_DAGGER` 用已有的按类型生成入口 + 两个攻击） | 成员清单与常量攻击表；**尚未逐行读完**，动手前要按 §3.3 复核 |
+| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22） | 完整读过 |
+| 只缺「已有能力」的登记活 | `Reptomancer`（分支带重掷 + `SPAWN_DAGGER` 用已有的按类型生成入口 + 两个攻击） | 成员清单与常量攻击表；**尚未逐行读完**，动手前要按 §3.3 复核 |
 | 卡在本体能力上 | `Exploder`：源码的 `EXPLODE` 用 **`CreatureCmd.Damage`（直伤）**而不是 `DamageCmd.Attack`，而它的 `DeathBlowIntent` 是攻击意图、会被通用攻击循环当攻击结算——要精确复刻就得有「这条第三方行动的意图伤害不由通用攻击循环结算」的入口；`Transient`：`ShiftingPower` 要给自己的 `TemporaryStrengthPower` 子类施加负力量（需要按 `Type` 施加临时力量的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪）；`Deca`/`Donu`：AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；`Maw`/`GiantHead`：`NOMNOMNOM_MULTI`/`IT_IS_TIME` 是 `Dynamic*AttackIntent`（动态攻击值已就绪，但两只都还要 `BeforeDeath` 与分支）；`Nemesis`：自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化；`WrithingMass`：分支用私有 RNG 抽行动；`Darkling`/`AwakenedOne`：复活/重生（`DEAD_MOVE`/`REATTACH_MOVE`/`REBIRTH` 与内部数据）；`TimeEater`：`TimeWarpPower` 的回合计数与 `HASTE` | 完整读过 `Exploder`／`Transient`／`Deca`／`OrbWalker`；其余为成员清单初判 |
 
 ---
