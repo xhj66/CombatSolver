@@ -12,6 +12,17 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕自爆虫（`Exploder`）（2026-09-21）
+
+- 第三幕再补一只：`Exploder`。分支 `MOVE_BRANCH` **一次 RNG 都不抽**——回合计数 +1，没到
+  `ExplosiveCountdown`（自检钉死 3，源码写的是 `TurnCount <= 2`）就打一下，到了就自爆；
+  `_turnCount` 进状态名单（开场 0 由 `AfterAddedToRoom` 写入，已在根里），死字段 `_hasExploded` 不登记。
+  自爆的 30 点伤害由通用攻击循环按 `DeathBlowIntent` 结算，效果侧只补 `CreatureCmd.Kill(自己, false)`
+  与 `RegisterOwnerRemovingMove`。
+- **已知差异**（表示差异，不是数值近似）：源码用的是 `CreatureCmd.Damage` 直伤，求解器按意图当攻击命中
+  结算；两条路走同一套伤害管线（`ValueProp.Move` 与反伤一致），差别只在是否派发 `AfterAttack`，
+  而核心登记的 `AfterAttack` 镜像要么要求攻击者自己持有 Power、要么只对卡牌来源生效。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.26，差异同时记在 TEST_MATRIX。
 ## 未发布：第三幕蛇怪术士（`Reptomancer`）（2026-09-21）
 
 - 第三幕再补一只，与 §2.19 的 `SnakeDagger` 配成完整遭遇：分支 `MOVE_BRANCH` 的**递归重掷**

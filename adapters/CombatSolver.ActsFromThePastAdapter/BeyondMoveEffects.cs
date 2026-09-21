@@ -29,7 +29,11 @@ internal static class BeyondMoveEffects
         "Maw",
         "GiantHead",
         "Reptomancer",
+        "Exploder",
     ];
+
+    /// <summary>Exploder 自爆前的回合数（AFTP <c>ExplosiveCountdown</c>）；分支解析器也用它。</summary>
+    internal static int ExploderCountdown = 3;
 
     /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
     private static Type _constrictedPowerType = null!;
@@ -63,6 +67,7 @@ internal static class BeyondMoveEffects
         _giantHeadIncrementDmg = AfpReflection.RequireConst("GiantHead", "IncrementDmg", 5);
         _giantHeadGlareDuration = AfpReflection.RequireConst("GiantHead", "GlareDuration", 1);
         _snakeDaggerType = AfpReflection.RequireType("ActsFromThePast.SnakeDagger");
+        ExploderCountdown = AfpReflection.RequireConst("Exploder", "ExplosiveCountdown", 3);
     }
 
     public static void RegisterAll()
@@ -133,6 +138,44 @@ internal static class BeyondMoveEffects
         // 挂上 MinionPower（已在根里）。这里要补的是战斗中召唤的那一步与 SNAKE_STRIKE 的虚弱。
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Reptomancer", "SPAWN_DAGGER", ReptomancerSpawnDagger);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Reptomancer", "SNAKE_STRIKE", ReptomancerSnakeStrike);
+
+        // --- 自爆虫（Exploder） ---
+        // 开场 _turnCount = 0（AfterAddedToRoom，已在根里）；分支每回合 +1，所以它进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Exploder", "_turnCount");
+        // EXPLODE：DeathBlowIntent 就是攻击意图（SingleAttackIntent 的派生），30 点伤害由通用攻击循环
+        // 按意图结算，这里只补源码最后那句 CreatureCmd.Kill(自己, false)。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Exploder", "EXPLODE", ExploderExplode);
+        ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Exploder", "EXPLODE");
+    }
+
+    /// <summary>
+    /// Exploder.Explode：伤害由通用攻击循环按 <c>DeathBlowIntent(30)</c> 结算，效果侧只补自杀
+    /// （与 <c>SnakeDagger.EXPLODE</c> 同型）。
+    /// </summary>
+    /// <remarks>
+    /// 源码这一下用的是 <c>CreatureCmd.Damage</c>（直伤）而不是 <c>DamageCmd.Attack</c>；求解器按意图把它
+    /// 当攻击命中结算。两条路在这个核心里走的是同一套伤害管线（同样的 <c>ValueProp.Move</c>、同样的
+    /// <c>BeforeDamageReceived</c> 反伤），差别只落在「会不会派发 <c>AfterAttack</c>」——而核心登记的那些
+    /// <c>AfterAttack</c> 镜像要么要求攻击者自己持有 Power、要么只对卡牌来源生效，所以对自爆虫这场战斗
+    /// 的结果没有可观察差别。已在 TEST_MATRIX 记为已知差异。
+    /// </remarks>
+    private static bool ExploderExplode(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = combat;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        if (simulator.State.GetCreature(move.Owner).IsDead)
+            return true;
+        simulator.Kill(move.Owner);
+        killedOwner = true;
+        return true;
     }
 
     /// <summary>AFTP 的蛇匕首类型（Reptomancer 召唤用）。</summary>

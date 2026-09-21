@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕自爆虫（`Exploder`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.Exploder`（回合计数 +1，`turnCount < ExplosiveCountdown`
+  ⇒ ATTACK 否则 EXPLODE，**这条分支一次 RNG 都不抽**）、`RegisterMonsterStateMembers("Exploder",
+  {"_turnCount"})`、`RequireConst("Exploder","ExplosiveCountdown",3)`、`ExploderExplode`
+  （`simulator.Kill(owner)` + `killedOwner`）、`RegisterOwnerRemovingMove("Exploder","EXPLODE")`
+  全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 73,728 B；核心本轮未改）。
+- **已知差异**：源码 `Explode` 的 30 点伤害走 `CreatureCmd.Damage`（直伤），求解器按 `DeathBlowIntent`
+  把它当攻击命中结算。两条路在本核心里是同一套伤害管线（`ValueProp.Move` + `BeforeDamageReceived`
+  反伤一致），差别只在是否派发 `AfterAttack`；核心已登记的 `AfterAttack` 镜像要么要求攻击者自己持有
+  Power、要么只对卡牌来源生效，因此这场战斗的结果无可观察差别。**这是表示差异，不是数值近似**。
+- **未验证**：没有在游戏内打过「自爆虫」遭遇，`ExplosiveCountdown` 的回合数与自爆后的阵容变化都
+  **未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕蛇怪术士（`Reptomancer`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

@@ -34,12 +34,13 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Maw", "MOVE_BRANCH", Maw);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GiantHead", "MOVE_BRANCH", GiantHead);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Reptomancer", "MOVE_BRANCH", Reptomancer);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Exploder", "MOVE_BRANCH", Exploder);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer"];
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -265,6 +266,27 @@ internal static class BeyondBranchResolvers
                 alive++;
         }
         return alive < 4;
+    }
+
+    /// <summary>
+    /// Exploder.SelectNextMove：**一次 RNG 都不抽**——回合计数 +1，还没到 <c>ExplosiveCountdown</c>（3）就打一下，
+    /// 到了就自爆。它写自己的计数，所以**不在**纯读取名单里。
+    /// </summary>
+    private static string Exploder(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = log;
+        _ = rng;
+        _ = simulator;
+        int turnCount = combat.GetMonsterInt(monster.Creature, "_turnCount") + 1;
+        combat.SetMonsterInt(monster.Creature, "_turnCount", turnCount);
+        return turnCount < BeyondMoveEffects.ExploderCountdown ? "ATTACK" : "EXPLODE";
     }
 
     /// <summary>
