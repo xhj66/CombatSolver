@@ -30,6 +30,11 @@ internal sealed partial class SimulatedCombatState
     public void RecoverStolenResources(CombatPredictionSimulator simulator, Creature dead)
     {
         EnsureOutstandingStolenResourcesInitialized(simulator);
+        // 第三方盗贼用本体 `ThieveryPower` 偷钱、自己在死亡时把赃款当奖励还回来
+        // （往昔之章的 Looter／Mugger 走 `Creature.Died` 事件）。原版那条由 `HeistPower.BeforeDeath`
+        // 负责，赃款在死亡时先转到生成出来的同伴身上，所以这里只处理登记过的怪物。
+        bool returnsGoldOnDeath = dead.Monster is { } monster
+            && ThirdPartyAdapterRegistry.ReturnsStolenGoldOnDeath(monster.GetType().Name);
         foreach (var power in EffectivePowers().Where(power => ReferenceEquals(power.Owner, dead)))
         {
             if (ThirdPartyAdapterRegistry.TryGetStolenCardPower(
@@ -47,6 +52,11 @@ internal sealed partial class SimulatedCombatState
                     break;
                 case HeistPower heist:
                     _outstandingStolenGold = Math.Max(0, _outstandingStolenGold.GetValueOrDefault() - heist.Amount);
+                    break;
+                case ThieveryPower thievery when returnsGoldOnDeath:
+                    _outstandingStolenGold = Math.Max(
+                        0,
+                        _outstandingStolenGold.GetValueOrDefault() - Math.Max(0, thievery.DynamicVars.Gold.IntValue));
                     break;
             }
         }

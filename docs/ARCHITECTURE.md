@@ -57,7 +57,7 @@ Entry / turn hooks
 
 同一战斗回合已有计划、活动搜索、部署会话或已完成的部署时，迟到的 AutoTurnStart 在 RequestSearch 入口直接完成。搜索与部署会话分别冻结战斗身份和起始回合；开始部署清空 LatestResult 后由部署会话延续归属，完成后由 LastSolverDeployedTurn 保留。手动重算及下一回合请求继续原流程。
 
-`ICombatPredictionEffectSink.ApplyPowerFromSource` 将原版显式 cardSource 传入分支 Power 施加作用域，null 明确代表能力/遗物自身来源；完成后恢复外层来源。Envenom/Concoct 的附毒使用此入口，UnsettlingLamp 继续只响应卡牌直接施加，且与实机一致：目标已被同一张牌打死并移出战斗时，那一层减益根本不施加、油灯也不触发。作用域存于分支，活动期间禁止 Fork。
+`ICombatPredictionEffectSink.ApplyPowerFromSource` 将原版显式 cardSource 传入分支 Power 施加作用域，null 明确代表能力/遗物自身来源；完成后恢复外层来源。卡牌直接施加走继承的作用域，**能力与遗物驱动的施加一律显式传 null**（Envenom/Concoct 的附毒、腐蚀波的毒、撕裂/激怒/吸取/军械库的力量、红头骨/定形黏土/破甲钻/手里剑等）：原版那些调用点的 cardSource 都是 null，不显式传就会继承外层卡牌作用域，误触发只认卡牌来源的不安油灯一类判据（问题包 c4e28f3b）。UnsettlingLamp 继续只响应卡牌直接施加，且与实机一致：目标已被同一张牌打死并移出战斗时，那一层减益根本不施加、油灯也不触发。作用域存于分支，活动期间禁止 Fork。
 
 ## 2. Runtime
 
@@ -405,7 +405,7 @@ Mod 准入，具体契约见[模型状态适配](third-party-model-state.md)。
 
 ## 6. UI
 
-偷窃策略由 `TheftEncounterStrategy.CompareRecovery` 统一胜利/追回资源的排序前缀；`SolverInterimResult` 携带 TheftPolicy，展示与搜索中的候选比较按同一策略处理。保策略的终局、保路与药水审计将追回置于战损之前，纯 HP 早停要求资源已追回，HP incumbent 剪枝在保策略下停用。放走继续普通战损/药水政策。
+偷窃策略由 `TheftEncounterStrategy.CompareRecovery` 统一胜利/追回资源的排序前缀；`SolverInterimResult` 携带 TheftPolicy，展示与搜索中的候选比较按同一策略处理。`IsApplicable` 按**本体偷窃标记**判定（场上有人携带 `ThieveryPower`／`HeistPower`／`SwipePower`、登记过的第三方偷牌 Power，或登记过 `RegisterDeathReturnedGold` 的怪物），不再按原版盗贼怪物与遭遇 Id 写死——否则用本体 `ThieveryPower` 偷钱的第三方盗贼得不到保钱/保牌入口。保策略的终局、保路与药水审计将追回置于战损之前，纯 HP 早停要求资源已追回，HP incumbent 剪枝在保策略下停用。放走继续普通战损/药水政策。
 
 状态摘要采用首行徽章/路线摘要/右侧详情，次行搜索上下文/耗时/统计的结构；`ShowResult` 使用已有 SummaryText 中的回合信息，不重复显示规划回合上下文。搜索中的上下文标签关闭内部换行，流式统计行负责整项换行；`SolverDetailsButton` 保留展开事件与箭头，使用轻量无背景样式。
 

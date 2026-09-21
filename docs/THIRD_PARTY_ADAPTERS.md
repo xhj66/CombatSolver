@@ -515,6 +515,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterRevivePower(Power 类型名, 死亡回合 Id, 复活回合 Id)` | 第三方 Power 的「死亡后**保留尸体**、稍后复活」（原版 `ReattachPower` 的对应物）：同侧队友里带同一个 Power 的个体构成一组，组里还有活人就保留尸体并强制走死亡回合，之后复活回合治疗 `Amount` 点并复活；全组都死才算真死。不登记的话「死了就直接判赢」或者「卡在死亡回合回不来」，见下 |
 | `RegisterRespawnPower(Power 类型名, 重生行动 Id, 待复活血量成员名, 处理器)` | 第三方 Power 的「死亡后**重生到新阶段**」（原版 `AdaptablePower`／测试体的对应物）：死亡保留尸体、强制走一个指定行动，那个行动里换最大生命并满血回来；处理器由登记方写（换血、摘掉该摘的 Power）。只要这个 Power 还在，战斗就不能结束——所以重生回合必须把它自己摘掉。同一条还替它回答 `ShouldOwnerDeathTriggerFatal`（false），见下 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
+| `RegisterDeathReturnedGold(怪物类型名)` | 第三方**偷金币**怪物：原版「击杀盗贼拿回赃款」由 `HeistPower.BeforeDeath` 实现（赃款先转给生成出来的同伴，再靠杀那个同伴结算奖励），第三方盗贼则常用**本体** `ThieveryPower` 偷钱、自己在死亡时归还（往昔之章 Looter／Mugger 在 `Creature.Died` 事件里 `AddExtraReward(GoldReward(..., wasGoldStolenBack: true))`）。模拟器不触发 C# 事件，这个事实只能由适配登记；不登记时该怪物死亡不核销未追回金币，界面一直显示「未追回」、保资源排序还会去追一笔实机已经还回来的钱。识别这场遭遇**不需要**额外登记：`TheftEncounterStrategy.IsApplicable` 按场上是否有人携带偷窃标记（本体 `ThieveryPower`／`HeistPower`／`SwipePower`、登记过的偷牌 Power，或登记过本入口的怪物）判定 |
 
 #### 第三方分支状态的选择函数：默认**不在预测里调用**
 

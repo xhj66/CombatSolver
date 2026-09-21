@@ -1,5 +1,42 @@
 # CombatSolver 开发笔记与未来构想
 
+## 未发布：能力驱动的 Power 施加不再继承卡牌来源；第三方盗贼识别与赃款核销（2026-09-21）
+
+### 腐蚀波的毒的来源（问题包 c4e28f3b 的续用偏差）
+
+- 问题包 `c4e28f3b…` 在第 4 回合续用核对上报三个字段不一致：
+  `E0.hp expected={7} actual={13}`、`POISON_POWER expected={11} actual={5}`、
+  `relicCounters expected={UNSETTLING_LAMP/1/0} actual={UNSETTLING_LAMP/0/0}`。
+- 根因：腐蚀波的毒由 `CorrosiveWavePower.AfterCardDrawn` 施加，原版那条
+  `PowerCmd.Apply<PoisonPower>(…, cardSource: null)` 的来源是**能力本身**。预测里它没给显式来源，
+  于是继承了外层卡牌作用域（后空翻抽两张时就是后空翻），既把两层毒都算成卡牌来源、
+  翻倍成 12（实机 6），又误把不安油灯标成已触发。
+- 修法：`AfterCardDrawnMirrors.HandleCorrosiveWavePower` 改走
+  `ApplyPowerFromSource(…, cardSource: null)`；同一类「能力/遗物驱动但原版传 null」的调用点一并
+  逐条核对后修好（ReaperForm／Underworld 的灾厄、Rupture 的力量、Suck 的吸取、Arsenal 的军械库、
+  Tender 的减益、VitalSpark 的污染、Enrage、Oblivion，以及红头骨／定形黏土／破甲钻／手里剑）。
+  Envenom／Concoct 早在 0.36.1 就是这样做的，本次把整族补齐。
+- 新增严格差分夹具 `LAMP-POWER-SOURCED-DEBUFF`：注入不安油灯＋腐蚀波（3 层），
+  打出后空翻抽两张（抽牌堆先塞两张，否则这张牌什么都不抽），逐字比较完整 `ContinuationStamp`。
+
+### 第三方盗贼的「保钱/保牌」与死亡归还（问题包 8896276f）
+
+- 问题包 `8896276f…`（`ACTSFROMTHEPAST-LOOTER_NORMAL`）里盗贼被击杀后 RESULT 仍报
+  `outstanding_stolen_resource=60`，且 `THEFT_POLICY_INIT policy=-`——「保牌/保钱／放走」按钮不出现、
+  也不会默认进入保资源策略。
+- 两个根因：① `TheftEncounterStrategy.IsApplicable` 只认原版盗贼怪物与两个遭遇 Id，
+  而往昔之章的 Looter／Mugger 是**本体** `ThieveryPower` 的使用者；② 原版「击杀拿回赃款」靠
+  `HeistPower.BeforeDeath`（赃款先转给生成出来的同伴），第三方盗贼却是自己在本体能力上实现归还
+  （`Creature.Died` 事件里的 `OnDeath` → `AddExtraReward(GoldReward(..., wasGoldStolenBack: true))`），
+  模拟器不触发 C# 事件。
+- 修法：`IsApplicable` 改按本体偷窃标记判定（`ThieveryPower`／`HeistPower`／`SwipePower`、
+  登记过的第三方偷牌 Power，或登记过新入口的怪物）；新增登记入口
+  `ThirdPartyAdapterRegistry.RegisterDeathReturnedGold(怪物类型名)`，`RecoverStolenResources`
+  在持有者死亡时按 `ThieveryPower.DynamicVars.Gold` 核销未追回金币；适配层为
+  `Looter`／`Mugger` 登记该事实，并用新加的 `AfpReflection.RequireMethod(…, "OnDeath", 1)` 钉住那个私有方法。
+- 新增夹具 `THEFT-POWER-MARKER`：注入本体 `ThieveryPower` 偷 30 金币，断言「只有本体标记也必须
+  被认成偷窃遭遇＋默认保资源」、未登记时死亡不核销、登记后死亡核销到 0。
+
 ## 未发布：死亡后不再接受 Power 施加（问题包 24b8f299 的遗物计数偏差）（2026-09-21）
 
 - 问题包 `24b8f299…`（`ACTSFROMTHEPAST-SMALL_SLIMES_WEAK`，0.43.2）里求解器算出了 4 回合零战损的路线，

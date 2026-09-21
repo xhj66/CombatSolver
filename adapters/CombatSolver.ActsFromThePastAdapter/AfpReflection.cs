@@ -174,6 +174,33 @@ internal static class AfpReflection
     }
 
     /// <summary>
+    /// 核对某个类型**声明**了指定名字与参数个数的实例方法（不要求是重写），并把这个类型取回来。
+    /// </summary>
+    /// <remarks>
+    /// 往昔之章有些语义挂在普通私有方法上：Looter／Mugger 把「死亡时把赃款当奖励还回来」写在
+    /// <c>OnDeath</c> 里、由 <c>Creature.Died</c> 事件订阅（模拟器不触发 C# 事件，所以适配改用
+    /// <c>RegisterDeathReturnedGold</c> 登记同一事实）。事件订阅本身核不到，但方法改名或改签名
+    /// 会在这里当场失败，而不是让适配带着一条不存在的声明继续跑。
+    /// </remarks>
+    public static Type RequireMethod(string typeName, string methodName, int parameterCount)
+    {
+        Type type = typeName.Contains('.', StringComparison.Ordinal)
+            ? RequireType(typeName)
+            : ResolveDeclaredType(typeName);
+        foreach (MethodInfo method in type.GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (string.Equals(method.Name, methodName, StringComparison.Ordinal)
+                && method.GetParameters().Length == parameterCount)
+            {
+                return type;
+            }
+        }
+        throw new InvalidOperationException(
+            $"{type.FullName}.{methodName}（{parameterCount} 参）不存在，往昔之章版本可能已变动。");
+    }
+
+    /// <summary>
     /// 核对并取回一个 <c>private const int</c>。返回值就是对方当前的常量值，
     /// 适配层用它参与运算，避免把数值抄成第二份真相。
     /// </summary>

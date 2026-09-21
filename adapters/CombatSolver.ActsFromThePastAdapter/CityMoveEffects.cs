@@ -77,6 +77,8 @@ internal static class CityMoveEffects
         _chosenDrainWeak = AfpReflection.RequireConst("Chosen", "DrainWeak", 3);
         _chosenHexAmount = AfpReflection.RequireConst("Chosen", "HexAmount", 1);
         _champDebuffAmount = AfpReflection.RequireConst("Champ", "DebuffAmount", 2);
+        // 强盗（Mugger）死亡时同样把赃款当奖励还回来（`Creature.Died` 事件里的 OnDeath）。
+        _ = AfpReflection.RequireMethod("Mugger", "OnDeath", 1);
         CityBranchResolvers.champForgeThreshold = AfpReflection.RequireConst("Champ", "ForgeThreshold", 2);
         // 蛇怪的尾鞭按 A9 分支，判据是游戏内部的 AscensionHelper.HasAscension（反射调用，先核对形状）。
         AfpReflection.VerifyAscensionHelper();
@@ -130,6 +132,8 @@ internal static class CityMoveEffects
         // Mugger.Escape：施法者自己离场，两侧都要声明
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mugger", "ESCAPE", MuggerEscape);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Mugger", "ESCAPE");
+        // Mugger.OnDeath：与第一幕 Looter 同型，赃款按奖励还回来。
+        ThirdPartyAdapterRegistry.RegisterDeathReturnedGold("Mugger");
 
         // --- Romeo（与熊／尖刺同场）与球状守卫、蛇怪 ---
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SphericGuardian", "ActivateBlock");

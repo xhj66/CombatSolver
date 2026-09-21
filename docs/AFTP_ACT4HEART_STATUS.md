@@ -278,8 +278,18 @@ Looter 是本次新解锁的第八个分支怪物，分支与效果都完整建�
 
 `ThieveryPower` 是**本体**能力（`MegaCrit.Sts2.Core.Models.Powers`）：Looter 在 `AfterAddedToRoom`
 里按 `GoldAmount` 给自己挂一份、`Target` 指向玩家。求解器本体已有这条口径（偷取上限为
-`min(Amount, 玩家金币)`、未追回账本 `OutstandingStolenResource`、击杀后的奖励补偿），
-适配不重复实现，直接复用 `RecordThievery`。
+`min(Amount, 玩家金币)`、未追回账本 `OutstandingStolenResource`），适配不重复实现，
+直接复用 `RecordThievery`。
+
+**击杀归还赃款**是 Looter／Mugger 自己的 C# 事件（`Creature.Died` 里的 `OnDeath` →
+`AddExtraReward(GoldReward(..., wasGoldStolenBack: true))`），而模拟器不触发 C# 事件；
+原版那条「击杀拿回金币」由 `HeistPower.BeforeDeath` 实现，对用本体 `ThieveryPower` 的第三方盗贼不生效。
+所以适配用 `ThirdPartyAdapterRegistry.RegisterDeathReturnedGold("Looter")` 登记同一事实
+（自检里用 `AfpReflection.RequireMethod("Looter", "OnDeath", 1)` 钉住那个私有方法）。
+不登记的话：击杀后界面一直显示「未追回 60 金币」，保资源排序还会去追一笔实机已经还回来的钱
+（问题包 `8896276f`）。识别这场遭遇也不需要额外登记——`TheftEncounterStrategy.IsApplicable`
+现在按本体偷窃标记（`ThieveryPower`／`HeistPower`／`SwipePower`）判定。
+
 `_hasSpoken` 与死亡台词的 `Rng.Chaotic` 抽样只影响对白，不进预测。
 
 **未覆盖的同型内容**：`Mugger`（第二幕，同样是 `MUG_BRANCH` + 偷金币形状）不在本批约定范围

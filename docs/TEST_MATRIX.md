@@ -1,5 +1,29 @@
 # CombatSolver 测试清单
 
+## 未发布：能力驱动的 Power 来源与第三方盗贼赃款（问题包 c4e28f3b / 8896276f）（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error）。
+- `LAMP-POWER-SOURCED-DEBUFF`（不安油灯 + 腐蚀波 + 后空翻抽两张，抽牌堆先塞两张）：
+  **Passed**，完成检查
+  `LampPowerSourcedDebuff:NotAttributedToDrawnCard:KeepsCharge:FullContinuationState`
+  （预测与实机逐字比较完整 `ContinuationStamp`：敌方毒、遗物计数、手牌）。
+  首版夹具清空牌堆后后空翻抽不到牌，改动前后都会通过（空测），因此补上抽牌堆注入；
+  改动前的对照运行因用户可见游戏占用无头宿主而未重跑，改前的实机证据是问题包本身
+  （预测毒 11／实机 5、`UNSETTLING_LAMP` expected=1 actual=0）。
+- `THEFT-POWER-MARKER`（注入本体 `ThieveryPower` 偷 30 金币）：
+  - **改动前 Failed**，错误为 `带 ThieveryPower 的第三方盗贼没有被认成偷窃遭遇。`；
+  - **改动后 Passed**，完成检查
+    `TheftPowerMarker:ApplicableByNativeMarker:DeathReturnedGoldClearsOutstanding`
+    （含「未登记不核销／登记后核销到 0」两段）。
+- 结构门禁 `pwsh -NoProfile -File tools/verify-refactor-boundaries.ps1` 输出
+  `REFACTOR_BOUNDARIES_OK search_files=205`。
+- 已部署：`mods\CombatSolver\CombatSolver.dll`（SHA256 `C56697D3AF1D81B6BEB732B20ABF91D047ACBF3C7747C616C56E93BE0BECCC4D`，
+  与构建产物一致）与 `mods\CombatSolver-AFTP\CombatSolver-AFTP.dll`（121344 B，含两条 `RegisterDeathReturnedGold` 登记）。
+- 环境注记：无头实例 `.local/headless-instances/lampdiff`，harness 需要 `default\1\settings.save`（本机交互档是
+  `steam\<steamId>` 布局，因此在实例内预置拷贝，未改动用户档案）；一次快照失败来自
+  `.combatsolver-precombat\process-*` 在复制期间被删除（harness 竞态），一次来自可见游戏占用宿主，重试即通过。
+- **未验证**：没有在可见 Steam 会话里复核这两场战斗；`LAMP-POWER-SOURCED-DEBUFF` 的改动前对照未重跑（见上）。
+
 ## 未发布：死亡后不再接受 Power 施加（问题包 24b8f299）（2026-09-21）
 
 - 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告）。

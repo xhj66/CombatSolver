@@ -84,6 +84,8 @@ internal static class ExordiumMoveEffects
         _gremlinFatWeakAmount = AfpReflection.RequireConst("GremlinFat", "WeakAmount", 1);
         _gremlinFatFrailAmount = AfpReflection.RequireConst("GremlinFat", "FrailAmount", 1);
         _looterEscapeBlock = AfpReflection.RequireConst("Looter", "EscapeBlock", 6);
+        // 强盗死亡时把赃款当奖励还回来（`Creature.Died` 事件里的 OnDeath），登记见 RegisterAll。
+        _ = AfpReflection.RequireMethod("Looter", "OnDeath", 1);
         // 大型史莱姆源码里这两处写的是字面量，同名的 private const 就是文档里的那个值；
         // 钉死常量至少能挡住「一起改」的情形，数值真的变了也不会静默沿用旧值。
         _acidSlimeLargeSlimedCount = AfpReflection.RequireConst("AcidSlimeLarge", "SlimedCount", 2);
@@ -178,6 +180,8 @@ internal static class ExordiumMoveEffects
         // Looter.Escape：CreatureCmd.Escape(Creature, true)——施法者自己离场，两侧都要声明
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Looter", "ESCAPE", LooterEscape);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Looter", "ESCAPE");
+        // Looter.OnDeath：把 ThieveryPower 携带的赃款按奖励还回来；模拟器不触发 C# 事件，只登记事实。
+        ThirdPartyAdapterRegistry.RegisterDeathReturnedGold("Looter");
 
         // --- 大型史莱姆与史莱姆王（分裂） ---
         // AcidSlimeLarge.CorrosiveSpit：攻击 + 2 张 Slimed 进弃牌堆；Lick：Weak 2 回合

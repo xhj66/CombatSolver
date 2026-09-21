@@ -333,6 +333,31 @@ internal static class ThirdPartyAdapterRegistry
         out StolenCardPowerHandler handler)
         => StolenCardPowerTable.TryGetValue(powerTypeName, out handler!);
 
+    /// <summary>这个 Power 类型是否登记过为第三方偷牌来源。</summary>
+    public static bool IsRegisteredStolenCardPower(string powerTypeName)
+        => StolenCardPowerTable.ContainsKey(powerTypeName);
+
+    // === 第三方盗贼：死亡时归还携带的金币 ===
+
+    private static readonly HashSet<string> DeathReturnedGoldTable = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 声明「这个怪物死亡时，把它身上 <c>ThieveryPower</c> 携带的金币按奖励返还」。
+    /// </summary>
+    /// <remarks>
+    /// 原版的「击杀盗贼拿回金币」由 <c>HeistPower.BeforeDeath</c> 实现：偷钱地精死亡时把赃款
+    /// 转成一个新的 <c>HeistPower</c> 交给生成出来的同伴，杀掉那个同伴才结算奖励。第三方盗贼
+    /// 用本体 <c>ThieveryPower</c> 偷钱、自己实现「死亡返还」（往昔之章的 Looter／Mugger 是在
+    /// <c>Creature.Died</c> 事件里 <c>AddExtraReward(GoldReward(..., wasGoldStolenBack: true))</c>），
+    /// 模拟器不触发 C# 事件，所以必须在这里登记；否则界面会一直显示「未追回金币」，
+    /// 保资源排序也会去追一笔实机已经还回来的钱。
+    /// </remarks>
+    public static void RegisterDeathReturnedGold(string monsterTypeName)
+        => DeathReturnedGoldTable.Add(monsterTypeName);
+
+    public static bool ReturnsStolenGoldOnDeath(string monsterTypeName)
+        => DeathReturnedGoldTable.Contains(monsterTypeName);
+
     /// <summary>
     /// 一条「第三方复活 Power」的登记项：持有者死亡时保留尸体、进入复活阶段，
     /// <paramref name="DeadMoveId"/> 那一回合什么都不做，之后 <paramref name="ReviveMoveId"/> 治疗
