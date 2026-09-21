@@ -50,13 +50,15 @@ internal static class BeyondBranchResolvers
             "GremlinLeader",
             "MOVE_BRANCH",
             GremlinLeader);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FIRST_MOVE_BRANCH", ByrdFirstMove);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FLYING_BRANCH", ByrdFlying);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
-         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader"];
+         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader", "Byrd"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -72,6 +74,8 @@ internal static class BeyondBranchResolvers
         ("SnakePlant", "MOVE_BRANCH"),
         ("ShelledParasite", "MOVE_BRANCH"),
         ("GremlinLeader", "MOVE_BRANCH"),
+        ("Byrd", "FIRST_MOVE_BRANCH"),
+        ("Byrd", "FLYING_BRANCH"),
     ];
 
     /// <summary>
@@ -367,7 +371,7 @@ internal static class BeyondBranchResolvers
     }
 
     /// <summary>
-    /// GremlinLeader.SelectFromUpperRange：再抽一次 <c>NextInt(100)</c>；`&lt; 60` ⇒ ENCOURAGE（上一步是它
+    /// Byrd.SelectFromUpperRange：再抽一次 <c>NextInt(100)</c>；`&lt; 60` ⇒ ENCOURAGE（上一步是它
     /// 就 STAB）；否则上一步不是 STAB 就 STAB，只有上一步**是** STAB 时才再抽 <c>NextInt(80)</c>：
     /// `&lt; 50` ⇒ RALLY（上一步是 RALLY 就 ENCOURAGE）、否则 ENCOURAGE（上一步是 ENCOURAGE 就 STAB）。
     /// </summary>
@@ -382,6 +386,63 @@ internal static class BeyondBranchResolvers
         if (num2 < 50)
             return LastMove(log, "RALLY") ? "ENCOURAGE" : "RALLY";
         return LastMove(log, "ENCOURAGE") ? "STAB" : "ENCOURAGE";
+    }
+
+    /// <summary>
+    /// Byrd.SelectFirstMove（开场那个分支状态，是状态机的初始状态）：抽一次 <c>NextFloat(1)</c>，
+    /// `&lt; 0.375` ⇒ CAW，否则 PECK。只读 rng，**已声明为纯读取**。
+    /// </summary>
+    private static string ByrdFirstMove(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = log;
+        _ = combat;
+        _ = simulator;
+        return rng.NextFloat(1f) < 0.375f ? "CAW" : "PECK";
+    }
+
+    /// <summary>
+    /// Byrd.SelectFlyingMove：抽 <c>NextInt(100)</c>；`&lt; 50` 时最近连着两次 PECK 就再抽一次
+    /// <c>NextFloat(1)</c>（`&lt; 0.4` ⇒ SWOOP，否则 CAW）、不然 PECK；`&lt; 70` 时上一步是 SWOOP 就再抽
+    /// <c>NextFloat(1)</c>（`&lt; 0.375` ⇒ CAW，否则 PECK）、不然 SWOOP；其余上一步是 CAW 就再抽
+    /// <c>NextFloat(1)</c>（`&lt; 0.2857` ⇒ SWOOP，否则 PECK），再不然 CAW。
+    /// </summary>
+    /// <remarks>只读 rng 与行动历史，**已声明为纯读取**；那三次条件抽样的短路顺序照抄。</remarks>
+    private static string ByrdFlying(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = combat;
+        _ = simulator;
+        int num = rng.NextInt(100);
+        if (num < 50)
+        {
+            if (!LastTwoMoves(log, "PECK"))
+                return "PECK";
+            return rng.NextFloat(1f) < 0.4f ? "SWOOP" : "CAW";
+        }
+        if (num < 70)
+        {
+            if (!LastMove(log, "SWOOP"))
+                return "SWOOP";
+            return rng.NextFloat(1f) < 0.375f ? "CAW" : "PECK";
+        }
+        if (!LastMove(log, "CAW"))
+            return "CAW";
+        return rng.NextFloat(1f) < 0.2857f ? "SWOOP" : "PECK";
     }
 
     /// <summary>

@@ -907,6 +907,28 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 逃跑后阵容与胜负判定都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.36 第一幕：鸟（`Byrd`）——第二幕之外的一只，第二幕至此清空
+
+> 备注：`Byrd` 属第一幕（Exordium）的遭遇怪，但它与第二幕的收尾一起做完了；第二幕至此**只剩零只**。
+
+| 部位 | 源码（`ActsFromThePast.Byrd`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 挂 `FlightAmount` 层 `FlightPower` | 不需要代码（已在根里） |
+| `FIRST_MOVE_BRANCH`（状态机**初始状态**） | 抽 `NextFloat(1)`；`< 0.375` ⇒ CAW，否则 PECK | `ByrdFirstMove`；只读 rng → **已声明为纯读取** |
+| `FLYING_BRANCH` | 抽 `NextInt(100)`；`< 50` 时最近连着两次 PECK 才再抽 `NextFloat(1)`（`< 0.4` ⇒ SWOOP 否则 CAW），不然 PECK；`< 70` 时上一步是 SWOOP 才再抽 `NextFloat(1)`（`< 0.375` ⇒ CAW 否则 PECK），不然 SWOOP；其余上一步是 CAW 才再抽 `NextFloat(1)`（`< 0.2857` ⇒ SWOOP 否则 PECK），不然 CAW | `ByrdFlying`（三处条件抽样短路照抄）；**已声明为纯读取** |
+| `CAW` | 给自己 1 点力量（`CawStrength`） | `ByrdCaw`（`RequireConst` 钉死 1） |
+| `GO_AIRBORNE` | 给自己挂 `FlightAmount` 层 `FlightPower` | `ByrdGoAirborne`；`FlightAmount` 走静态数值成员 |
+| `PECK`／`SWOOP`／`HEADBUTT` | `MultiAttackIntent(1, PeckCount)`／`SingleAttackIntent(SwoopDamage)`／`SingleAttackIntent(3)` | 已在常量表 |
+| `FlightPower.ModifyDamageMultiplicative` | 飞行时受到的 `Move` 伤害 ×0.5 | **不需要新入口**：`ModifyDamageMirrors.InvokeMultiplicative` 对未登记类型会**回退调用监听者自己的实现**，而那个实现只读 `Owner` 与 props、不改状态，所以在预测的克隆实例上原样成立 |
+| `FlightPower.AfterDamageReceived` | 持有者吃到未被格挡的 `Move` 伤害（非 `Unpowered`）且还活着 ⇒ 减 1 层 | `FlightPowerDamageReceived` |
+| `FlightPower.AfterRemoved` | 层数归零被移除时调 `Byrd.OnFlightBroken()`：换外观 ＋ `CreatureCmd.Stun(自己, "HEADBUTT")` | 这只 Power 在实战里**只会因为上面那条减层而归零**，所以「移除时打落」就地表达成 `ForceStunnedMove(owner, "HEADBUTT")`（换外观那半是纯表现）。核心**没有**通用的 `AfterRemoved` 分发点，这个取舍已写进 §4.4 |
+| `FlightPower.BeforeSideTurnStart` | 自己那一方回合开始把层数回滚到施加时的值 | `RegisterSideTurnStartPower("FlightPower", …)`：直接读静态数值成员 `FlightAmount`（两处施加传的都是它，等价于源码读 `StoredAmount`） |
+| `BeforeDeath` | 一句死亡音效 | `BeforeDeathMirrors.RegisterIgnored` |
+
+**未验证**：没有在游戏内打过「鸟」遭遇，两条分支的抽样短路、飞行的 0.5 倍伤害、挨打减层与打落眩晕、
+回合开始的层数回滚都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1245,7 +1267,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | ~~`Collector`~~（已适配 §2.34） | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | ~~`ShelledParasite`~~（已适配 §2.33） | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
-| 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
+| 二 | ~~`Byrd`~~（已适配 §2.36） | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
 | 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
 | 三 | `WrithingMass` | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |

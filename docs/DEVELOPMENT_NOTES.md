@@ -23,6 +23,18 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：鸟（`Byrd`）（2026-09-21）
+
+- 第一幕的 `Byrd` 与第二幕收尾一起做完（第二幕至此清空）。两条分支都只读 rng 与行动历史、声明为纯读取：
+  开场那条是 `NextFloat(1) < 0.375 ⇒ CAW 否则 PECK`；飞行那条是 `NextInt(100)` 三档，其中三处
+  「只有满足连续/上一步条件时才再抽 `NextFloat(1)`」的短路逐条照抄。
+- `CAW` 给自己 1 点力量（`CawStrength` 钉死）；`GO_AIRBORNE` 挂 `FlightAmount` 层 `FlightPower`
+  （静态数值成员）；`FlightPower` 的三条语义：挨打减 1 层、层数归零时把 Byrd 打落并眩晕
+  （`ForceStunnedMove(owner, "HEADBUTT")`）、自己那一方回合开始把层数回滚到 `FlightAmount`。
+- 两处取舍：① 飞行时受到的 `Move` 伤害 ×0.5 **不需要新入口**——`ModifyDamageMirrors.InvokeMultiplicative`
+  对未登记类型会回退调用监听者自己的实现，而那个实现只读 `Owner` 与 props、不改状态；② 核心没有通用的
+  `AfterRemoved` 分发点，而这只 Power 在实战里只因自己的减层归零，所以「移除时打落」就地表达在减层处。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.36。
 ## 未发布：第二幕小鬼首领（`GremlinLeader`）（2026-09-21）
 
 - 分支三档（存活小鬼 0／1／更多）与 `SelectFromUpperRange` 里「只有上一步是 STAB 时才再抽 `NextInt(80)`」

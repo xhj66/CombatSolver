@@ -43,7 +43,14 @@ internal static class BeyondMoveEffects
         "ShelledParasite",
         "Collector",
         "GremlinLeader",
+        "Byrd",
     ];
+
+    /// <summary>AFTP 自己的 <c>FlightPower</c>（鸟的飞行）。</summary>
+    private static Type _flightPowerType = null!;
+
+    /// <summary>Byrd 的 CAW 给自己的力量（AFTP <c>CawStrength</c>）。</summary>
+    private static int _byrdCawStrength;
 
     /// <summary>AFTP 的火炬头类型（收集者召唤用）与五只小鬼类型（首领召唤用）。</summary>
     private static Type _torchHeadType = null!;
@@ -154,6 +161,11 @@ internal static class BeyondMoveEffects
         _gremlinShieldType = AfpReflection.RequireType("ActsFromThePast.GremlinShield");
         _gremlinWizardType = AfpReflection.RequireType("ActsFromThePast.GremlinWizard");
         MonsterRngSupport.VerifyShape();
+        _flightPowerType = AfpReflection.RequireType("ActsFromThePast.FlightPower");
+        _ = AfpReflection.RequireOverride("FlightPower", "BeforeSideTurnStart", 4);
+        _ = AfpReflection.RequireOverride("FlightPower", "AfterDamageReceived", 6);
+        _ = AfpReflection.RequireOverride("FlightPower", "AfterRemoved", 1);
+        _byrdCawStrength = AfpReflection.RequireConst("Byrd", "CawStrength", 1);
     }
 
     public static void RegisterAll()
@@ -355,6 +367,115 @@ internal static class BeyondMoveEffects
         BeforeDeathMirrors.Register(
             AfpReflection.RequireType("ActsFromThePast.GremlinLeader"),
             GremlinLeaderBeforeDeath);
+
+        // --- 鸟（Byrd，与 §2.12 的史莱姆三件套同幕） ---
+        // 开场挂 FlightPower（层数 FlightAmount）在 AfterAddedToRoom（已在根里）；这里补 CAW 与 GO_AIRBORNE，
+        // 以及 FlightPower 自己的三条语义。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Byrd", "FlightAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Byrd", "CAW", ByrdCaw);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Byrd", "GO_AIRBORNE", ByrdGoAirborne);
+        // FlightPower：飞行时受到的 Move 伤害 ×0.5 走的是 ModifyDamageMultiplicative 的**原版回退调用**
+        // （核心里这条入口对未登记类型会调用监听者自己的实现，而那个实现只读 Owner 与 props、不改状态），
+        // 所以不需要新入口。这里只登记「挨打减层 + 层数归零打落眩晕」与「自己那一方回合开始回滚层数」。
+        AfterDamageReceivedMirrors.Register(_flightPowerType, FlightPowerDamageReceived);
+        ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("FlightPower", FlightPowerTurnStart);
+        // BeforeDeath 只有一句死亡音效 ⇒ 登记为忽略（名字带 Death，不登记会让整场给不出战损）。
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Byrd"));
+    }
+
+    /// <summary>Byrd.Caw：给自己 <c>CawStrength</c> 点力量（台词与音效不在适配范围）。</summary>
+    private static bool ByrdCaw(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.Apply<StrengthPower>(move.Owner, _byrdCawStrength, move.Owner);
+        return true;
+    }
+
+    /// <summary>Byrd.GoAirborne：给自己挂 <c>FlightAmount</c> 层 <c>FlightPower</c>（重新起飞）。</summary>
+    private static bool ByrdGoAirborne(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.ApplyPower(
+            _flightPowerType,
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "FlightAmount"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>FlightPower.AfterDamageReceived</c>：持有者吃到未被格挡的 <c>Move</c> 伤害（非
+    /// <c>Unpowered</c>）且还活着时减 1 层；**层数归零时**源码靠 <c>AfterRemoved</c> 调
+    /// <c>Byrd.OnFlightBroken()</c>（换外观 + `CreatureCmd.Stun(自己, "HEADBUTT")`）。
+    /// </summary>
+    /// <remarks>
+    /// 这只 Power 在实战里只会因为这条减层而归零，所以「移除时打落」在这里就地表达：
+    /// 换成 <c>ForceStunnedMove(owner, "HEADBUTT")</c>（核心合成的 STUNNED 行动 FollowUp 指向 HEADBUTT，
+    /// 与源码 <c>CreatureCmd.Stun</c> 同型）；换外观那半是纯表现。
+    /// </remarks>
+    private static void FlightPowerDamageReceived(AbstractModel model, AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner
+            || context.Result.UnblockedDamage <= 0
+            || !context.Props.HasFlag(ValueProp.Move)
+            || context.Props.HasFlag(ValueProp.Unpowered)
+            || context.Simulator.State.GetCreature(power.Owner).CurrentHp <= 0)
+        {
+            return;
+        }
+        ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("飞行缺少可写的预测状态。");
+        int remaining = power.Amount - 1;
+        effects.SetPowerAmount(power, remaining);
+        if (remaining > 0
+            || !string.Equals(power.Owner.Monster?.GetType().Name, "Byrd", StringComparison.Ordinal))
+        {
+            return;
+        }
+        if (context.CombatState is not SimulatedCombatState simulatedCombat)
+        {
+            throw new PredictionUnsupportedException("飞行被打落时缺少可写的预测状态。");
+        }
+        simulatedCombat.ForceStunnedMove(power.Owner, "HEADBUTT");
+    }
+
+    /// <summary>
+    /// AFTP <c>FlightPower.BeforeSideTurnStart</c>：自己那一方回合开始时把层数回滚到施加时的值。
+    /// </summary>
+    /// <remarks>
+    /// 源码读的是 <c>DynamicVars["StoredAmount"]</c>（<c>AfterApplied</c> 里写进去的施加层数）；
+    /// 这只 Power 的两处施加（开场的 <c>AfterAddedToRoom</c> 与 <c>GO_AIRBORNE</c>）传的都是
+    /// <c>FlightAmount</c>，所以这里直接读那个静态数值成员，等价且不依赖第三方 DynamicVar 在预测里的物化。
+    /// </remarks>
+    private static void FlightPowerTurnStart(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power)
+    {
+        _ = simulator;
+        if (combat.CurrentSide != power.Owner.Side)
+            return;
+        ICombatPredictionEffectSink effects = combat as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("飞行缺少可写的预测状态。");
+        effects.SetPowerAmount(power, combat.GetMonsterStaticInt(power.Owner, "FlightAmount"));
     }
 
     /// <summary>

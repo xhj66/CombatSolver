@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：鸟（`Byrd`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`ByrdFirstMove`（`NextFloat(1) < 0.375`）与 `ByrdFlying`（`NextInt(100)` 三档
+  与三处条件 `NextFloat(1)` 短路）两条解析器与纯读取声明、`ByrdCaw`（`RequireConst("Byrd","CawStrength",1)`）、
+  `ByrdGoAirborne`（挂 `FlightAmount` 层 FlightPower，走静态数值成员）、`FlightPowerDamageReceived`
+  （减层 + 归零时 `ForceStunnedMove(owner,"HEADBUTT")`）、`FlightPowerTurnStart`
+  （`RegisterSideTurnStartPower`，自己那一方回合开始回滚到 `FlightAmount`）、三条 `RequireOverride`
+  （`BeforeSideTurnStart` 4 参／`AfterDamageReceived` 6 参／`AfterRemoved` 1 参）与 `RegisterIgnored(Byrd)`
+  全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 94,208 B；核心本轮未改）。
+- 两处取舍（都写进 §2.36 与 §4.4）：① 飞行减伤走 `ModifyDamageMultiplicative` 的**原版回退调用**
+  （核心里该入口对未登记类型会调用监听者自己的实现，而它只读 Owner/props、不改状态），因此**不需要**
+  新登记点；② 核心**没有**通用的 `AfterRemoved` 分发点，而这只 Power 在实战里只因自己的减层而归零，
+  所以「移除时打落」就地表达在减层那一处。
+- **未验证**：没有在游戏内打过「鸟」遭遇，两条分支的抽样短路、0.5 倍飞行减伤、挨打减层与打落眩晕、
+  回合开始回滚都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第二幕小鬼首领（`GremlinLeader`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
