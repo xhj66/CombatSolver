@@ -26,6 +26,7 @@ internal static class MonsterMoveSemantics
             return simulatedPlayer.IsDead;
         bool fullyBlockedAttack = false;
         bool playerDied = false;
+        List<DamageResult> attackResults = [];
         AttackCommand? attackContext = move.AttackHits.Count > 0
             ? simulator.BeginAttackContext(
                 new AttackCommand(0m)
@@ -53,6 +54,7 @@ internal static class MonsterMoveSemantics
                 simulator.AddAttackContextHit(attackContext!, results);
                 foreach (DamageResult result in results)
                 {
+                    attackResults.Add(result);
                     if (ReferenceEquals(result.Receiver, player) && result.WasFullyBlocked)
                         fullyBlockedAttack = true;
                 }
@@ -89,6 +91,17 @@ internal static class MonsterMoveSemantics
             if (move.Owner.Monster is BowlbugRock)
                 combat.ForceStunnedMove(move.Owner, "HEADBUTT_MOVE");
             combat.StunNextMove(move.Owner);
+        }
+        // 第三方登记的「攻击结算之后」：拿得到这次行动的全部伤害结果（源码里按未被格挡伤害回血这类行动）。
+        if (attackResults.Count > 0
+            && ThirdPartyAdapterRegistry.TryGetMonsterMoveAttackResults(
+                move.Owner.Monster?.GetType().Name ?? string.Empty,
+                move.Move.Id,
+                out ThirdPartyAdapterRegistry.MonsterMoveAttackResultHandler? attackResultHandler))
+        {
+            attackResultHandler(simulator, combat, move, attackResults);
+            if (simulator.HasPendingChoice)
+                return simulatedPlayer.IsDead;
         }
         MonsterMoveEffects.Apply(
             simulator,

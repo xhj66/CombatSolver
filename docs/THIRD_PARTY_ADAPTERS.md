@@ -494,6 +494,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 |---|---|
 | `RegisterMonsterMoveEffect(怪物类型名, 行动 Id, handler)` | 某个行动的**非攻击部分**（攻击仍由通用攻击循环按意图结算）。跑在攻击**之后** |
 | `RegisterMonsterMoveBeforeAttack(怪物类型名, 行动 Id, handler)` | 某个行动在**攻击之前**要做的部分（先加格挡／先上状态再打）。同一行动可以两段都登记 |
+| `RegisterMonsterMoveAttackResults(怪物类型名, 行动 Id, handler)` | 某个行动在**攻击结算之后**、行动效果之前的部分，形参里带这次行动的**全部伤害结果**。用于「按这次攻击的未被格挡伤害回血」这类行动——自己拿「伤害 − 攻击前格挡」去凑是近似（易伤／无实体／虚弱都会改真实数值） |
 | `RegisterMonsterBranchResolver(怪物类型名, 分支 Id, resolver)` | 自定义分支状态的下一步选择。`resolver(monster, branchId, stateLog, rng, combat, simulator)`：行动历史与 RNG 逐条照抄源码，**数值一律从模拟状态读** |
 | `RegisterPureBranchSelector(怪物类型名, 分支 Id)` | 声明该分支的选择函数是**纯读取**，预测器可以照旧在实机上调用它推演后续回合；见下 |
 | `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |

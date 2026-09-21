@@ -119,6 +119,7 @@ internal static class ThirdPartyAdapterRegistry
     private static readonly Dictionary<string, TurnStartPowerHandler> TurnStartPowerTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, SideTurnEndPowerHandler> SideTurnEndPowerTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, SideTurnStartPowerHandler> SideTurnStartPowerTable = new(StringComparer.Ordinal);
+    private static readonly Dictionary<(string Type, string Id), MonsterMoveAttackResultHandler> MoveAttackResultTable = [];
     private static readonly HashSet<string> AllowedCombatSubscriberTypes = new(StringComparer.Ordinal);
     private static readonly HashSet<(string Type, string Id)> StableAttackTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterAttackValueResolver> DynamicAttackTable = [];
@@ -219,6 +220,21 @@ internal static class ThirdPartyAdapterRegistry
         => SideTurnStartPowerTable.TryGetValue(powerTypeName, out handler!);
 
     /// <summary>
+    /// 第三方怪物行动的「攻击结算之后」部分：拿得到这次行动的**全部伤害结果**。
+    /// </summary>
+    /// <remarks>
+    /// 求解器结算一个行动的顺序是「先攻击、再行动效果」，而 <see cref="MonsterMoveEffectHandler"/> 的形参
+    /// 里没有伤害结果——像「按这次攻击造成的未被格挡伤害回血」这种行动表达不了（自己拿「伤害 − 攻击前格挡」
+    /// 去凑是**近似**：易伤、无实体、虚弱都会改真实数值）。这个入口把逐段结果原样交给登记方，
+    /// 派发点在攻击循环之后、行动效果之前，与源码回调用的是同一批数据。
+    /// </remarks>
+    public delegate void MonsterMoveAttackResultHandler(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        IReadOnlyList<DamageResult> results);
+
+    /// <summary>
     /// 第三方「偷牌」Power 的判定：这个 Power 实例当前是否扣着某张牌。
     /// </summary>
     /// <remarks>
@@ -238,6 +254,25 @@ internal static class ThirdPartyAdapterRegistry
         string powerTypeName,
         out StolenCardPowerHandler handler)
         => StolenCardPowerTable.TryGetValue(powerTypeName, out handler!);
+
+    /// <summary>
+    /// 登记第三方怪物某个行动的「攻击结算之后」实现（拿得到这次行动的全部伤害结果）。
+    /// </summary>
+    /// <remarks>
+    /// 派发点在 <c>MonsterMoveSemantics.ApplyForecastMove</c> 的攻击循环之后、行动效果之前；
+    /// 只有这次行动真的打出了命中时才会派发（结果是空列表时与没登记一样，不做任何事）。
+    /// </remarks>
+    public static void RegisterMonsterMoveAttackResults(
+        string monsterTypeName,
+        string moveId,
+        MonsterMoveAttackResultHandler handler)
+        => MoveAttackResultTable.Add((monsterTypeName, moveId), handler);
+
+    public static bool TryGetMonsterMoveAttackResults(
+        string monsterTypeName,
+        string moveId,
+        out MonsterMoveAttackResultHandler? handler)
+        => MoveAttackResultTable.TryGetValue((monsterTypeName, moveId), out handler);
 
     // === 怪物行动效果 ===
 

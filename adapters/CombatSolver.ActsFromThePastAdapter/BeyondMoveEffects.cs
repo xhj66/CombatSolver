@@ -40,7 +40,11 @@ internal static class BeyondMoveEffects
         "SnakePlant",
         "BronzeAutomaton",
         "BronzeOrb",
+        "ShelledParasite",
     ];
+
+    /// <summary>甲壳寄生虫 FELL 给的破甲层数（AFTP <c>FellFrailAmount</c>）。</summary>
+    private static int _shelledParasiteFellFrail;
 
     /// <summary>AFTP 自己的 <c>StasisPower</c>（铜制球体偷牌用）。</summary>
     private static Type _stasisPowerType = null!;
@@ -129,6 +133,7 @@ internal static class BeyondMoveEffects
         _stasisPowerType = AfpReflection.RequireType("ActsFromThePast.StasisPower");
         _ = AfpReflection.RequireOverride("StasisPower", "BeforeDeath", 1);
         _bronzeOrbType = AfpReflection.RequireType("ActsFromThePast.BronzeOrb");
+        _shelledParasiteFellFrail = AfpReflection.RequireConst("ShelledParasite", "FellFrailAmount", 2);
     }
 
     public static void RegisterAll()
@@ -284,6 +289,52 @@ internal static class BeyondMoveEffects
             static (simulator, power) => simulator.StateStore
                 .Peek(power, static () => new StasisStolenCardState())
                 .CardIdentity);
+
+        // --- 甲壳寄生虫（ShelledParasite） ---
+        // 开场 14 层 PlatedArmorPower 在 AfterAddedToRoom（已在根里，镜像见上）。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("ShelledParasite", "SuckDamage");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("ShelledParasite", "FELL", ShelledParasiteFell);
+        // LIFE_SUCK 要按这次攻击的**未被格挡伤害**回血——行动效果拿不到伤害结果，所以走「攻击结算之后」那张表。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveAttackResults(
+            "ShelledParasite",
+            "LIFE_SUCK",
+            ShelledParasiteLifeSuck);
+        // BeforeDeath 是空重写（只有基类调用），登记为忽略（名字带 Death，不登记会让整场给不出战损）。
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.ShelledParasite"));
+    }
+
+    /// <summary>ShelledParasite.Fell：攻击后给每个活着的目标 <c>FellFrailAmount</c> 层破甲。</summary>
+    private static bool ShelledParasiteFell(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.Apply<FrailPower>(player, _shelledParasiteFellFrail, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// ShelledParasite.LifeSuck：按这次攻击全部命中里**未被格挡的伤害**之和给自己回血（源码就是把
+    /// <c>Results.SelectMany(...).Sum(r =&gt; r.UnblockedDamage)</c> 拿去 <c>CreatureCmd.Heal(…, true)</c>）。
+    /// </summary>
+    private static void ShelledParasiteLifeSuck(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        IReadOnlyList<DamageResult> results)
+    {
+        _ = combat;
+        int totalUnblocked = 0;
+        foreach (DamageResult result in results)
+            totalUnblocked += result.UnblockedDamage;
+        if (totalUnblocked > 0)
+            simulator.Heal(move.Owner, totalUnblocked);
     }
 
     /// <summary>
@@ -660,15 +711,22 @@ internal static class BeyondMoveEffects
         ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
             ?? throw new PredictionUnsupportedException("镀甲缺少可写的预测状态。");
         effects.ApplyPower(_platedArmorType, power.Owner, -1, power.Applier);
-        if (power.Amount - 1 <= 0
-            && string.Equals(
+        if (power.Amount - 1 > 0
+            || !string.Equals(
                 power.Owner.Monster?.GetType().Name,
                 "ShelledParasite",
                 StringComparison.Ordinal))
         {
-            throw new PredictionUnsupportedException(
-                "镀甲层数归零时的甲壳寄生虫破甲（OnArmorBreak）还没有适配。");
+            return;
         }
+        // 层数归零的甲壳寄生虫会破甲：源码 OnArmorBreak 最后是 SetMoveImmediate(_stunnedState, true)，
+        // 对应核心的 ForceStunnedMove（合成的 STUNNED 行动 FollowUp 指回 FELL，与源码那个状态同型）。
+        if (context.CombatState is not SimulatedCombatState simulatedCombat)
+        {
+            throw new PredictionUnsupportedException(
+                "镀甲层数归零时的甲壳寄生虫破甲缺少可写的预测状态。");
+        }
+        simulatedCombat.ForceStunnedMove(power.Owner, "FELL");
     }
 
     /// <summary>

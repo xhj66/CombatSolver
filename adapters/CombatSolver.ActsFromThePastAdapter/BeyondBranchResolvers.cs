@@ -41,13 +41,17 @@ internal static class BeyondBranchResolvers
             "MOVE_BRANCH",
             BronzeAutomaton);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("BronzeOrb", "MOVE_BRANCH", BronzeOrb);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "ShelledParasite",
+            "MOVE_BRANCH",
+            ShelledParasite);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
-         "SnakePlant", "BronzeAutomaton", "BronzeOrb"];
+         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -61,6 +65,7 @@ internal static class BeyondBranchResolvers
         ("SpireGrowth", "MOVE_BRANCH"),
         ("Reptomancer", "MOVE_BRANCH"),
         ("SnakePlant", "MOVE_BRANCH"),
+        ("ShelledParasite", "MOVE_BRANCH"),
     ];
 
     /// <summary>
@@ -213,6 +218,48 @@ internal static class BeyondBranchResolvers
         if (num >= 70 && !LastTwoMoves(log, "SUPPORT_BEAM"))
             return "SUPPORT_BEAM";
         return LastTwoMoves(log, "BEAM") ? "SUPPORT_BEAM" : "BEAM";
+    }
+
+    /// <summary>
+    /// ShelledParasite.SelectNextMove：抽 <c>NextInt(100)</c>；`&lt; 20` 时上一步不是 FELL ⇒ FELL，
+    /// 否则**再抽一次**（区间 `[20,100)` 的重载）；`&lt; 60` 时最近没连出两次 DOUBLE_STRIKE ⇒ 它，
+    /// 否则 LIFE_SUCK；再不然最近没连出两次 LIFE_SUCK ⇒ 它，否则 DOUBLE_STRIKE。
+    /// </summary>
+    /// <remarks>
+    /// 那条重载会**多抽一次**（`rng.NextInt(min, 100)`），区间也必须照抄——抽少了后续回合整体错位。
+    /// 它只读 rng 与行动历史，不写状态，**已声明为纯读取**。
+    /// </remarks>
+    private static string ShelledParasite(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = combat;
+        _ = simulator;
+        int num = rng.NextInt(100);
+        if (num < 20)
+        {
+            if (!LastMove(log, "FELL"))
+                return "FELL";
+            return ShelledParasiteReroll(log, rng, 20);
+        }
+        if (num < 60)
+            return LastTwoMoves(log, "DOUBLE_STRIKE") ? "LIFE_SUCK" : "DOUBLE_STRIKE";
+        return LastTwoMoves(log, "LIFE_SUCK") ? "DOUBLE_STRIKE" : "LIFE_SUCK";
+    }
+
+    /// <summary>ShelledParasite 的重载分支：在 <c>[min, 100)</c> 里再抽一次，之后只剩两路判断。</summary>
+    private static string ShelledParasiteReroll(IReadOnlyList<string> log, Rng rng, int min)
+    {
+        int num = rng.NextInt(min, 100);
+        if (num < 60)
+            return LastTwoMoves(log, "DOUBLE_STRIKE") ? "LIFE_SUCK" : "DOUBLE_STRIKE";
+        return LastTwoMoves(log, "LIFE_SUCK") ? "DOUBLE_STRIKE" : "LIFE_SUCK";
     }
 
     /// <summary>

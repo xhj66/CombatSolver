@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕甲壳寄生虫（`ShelledParasite`）与本体「攻击结算之后」入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `MonsterMoveAttackResultHandler` 委托、登记表、
+  `RegisterMonsterMoveAttackResults` / `TryGetMonsterMoveAttackResults`，以及
+  `MonsterMoveSemantics.ApplyForecastMove` 里的派发点（攻击循环之后、行动效果之前，只在真的有命中时派发）
+  都在场；适配里 `BeyondBranchResolvers.ShelledParasite` ＋ `ShelledParasiteReroll`（**多抽一次**、
+  区间 `[20,100)`）、纯读取声明、`RequireConst("ShelledParasite","FellFrailAmount",2)`、
+  `RegisterStaticIntMembers("ShelledParasite","SuckDamage")`、`ShelledParasiteFell`、
+  `RegisterMonsterMoveAttackResults("ShelledParasite","LIFE_SUCK", …)`（累加 `UnblockedDamage` 后回血）、
+  镀甲归零时改调 `ForceStunnedMove(owner, "FELL")` 与 `BeforeDeathMirrors.RegisterIgnored` 全部在场；
+  两份部署产物与工作区构建哈希逐字节相同（核心 6,295,552 B、AFTP 87,040 B）。
+- 顺带把 §2.28 里「层数归零的甲壳寄生虫破甲」那条**显式失败**接成了真实现：源码 `OnArmorBreak` 最后是
+  `SetMoveImmediate(_stunnedState, true)`，对应核心 `ForceStunnedMove(owner, "FELL")`。
+- **未验证**：没有在游戏内打过「甲壳寄生虫」遭遇，重掷区间、FELL 的破甲、LIFE_SUCK 的回血量与破甲后的
+  眩晕都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第二幕首领铜制自动机（`BronzeAutomaton`）与铜制球体（`BronzeOrb`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

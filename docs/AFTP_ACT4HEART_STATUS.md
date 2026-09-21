@@ -850,6 +850,27 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 两道分支的短路都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.33 第二幕：甲壳寄生虫（`ShelledParasite`）与本体新增「攻击结算之后」入口
+
+它的 `LIFE_SUCK` 要按**这次攻击的未被格挡伤害**给自己回血，而行动效果的形参里没有伤害结果——自己拿
+「伤害 − 攻击前格挡」去凑是近似（易伤／无实体／虚弱都会改真实数值），所以先补一个本体入口：
+`ThirdPartyAdapterRegistry.RegisterMonsterMoveAttackResults(怪物类型名, 行动 Id, handler)`，派发在
+`MonsterMoveSemantics.ApplyForecastMove` 的攻击循环之后、行动效果之前，把逐段结果原样交给登记方。
+
+| 部位 | 源码（`ActsFromThePast.ShelledParasite`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 挂 **14** 层 `PlatedArmorPower` | 不需要代码（根捕获前已在实例上）；镜像见 §2.28 |
+| `MOVE_BRANCH` | 抽 `NextInt(100)`；`< 20` 且上一步不是 FELL ⇒ FELL，否则**再抽一次（区间 `[20,100)` 的重载）**；`< 60` 时最近没连出两次 DOUBLE_STRIKE ⇒ 它，否则 LIFE_SUCK；再不然最近没连出两次 LIFE_SUCK ⇒ 它，否则 DOUBLE_STRIKE | `BeyondBranchResolvers.ShelledParasite` ＋ `ShelledParasiteReroll`（多抽那一次与区间都照抄）；只读 rng 与行动历史 → **已声明为纯读取** |
+| `FELL` | 攻击 ＋ 给每个活着的目标 2 层破甲（`FellFrailAmount`） | `ShelledParasiteFell`（层数用 `RequireConst` 钉死 2） |
+| `DOUBLE_STRIKE` | `MultiAttackIntent(DoubleStrikeDamage, 2)` | 已在常量表 |
+| `LIFE_SUCK` | 攻击后按**全部命中的未被格挡伤害之和**给自己回血 | `RegisterMonsterMoveAttackResults("ShelledParasite", "LIFE_SUCK", …)`：逐条累加 `UnblockedDamage` 再 `simulator.Heal` |
+| `STUNNED` | 由 `OnArmorBreak()` 里 `SetMoveImmediate(_stunnedState, true)` 强制插入，FollowUp 指回 `FELL` | 镀甲层数归零时（§2.28 那条原先显式失败的分支）改调 `combat.ForceStunnedMove(owner, "FELL")`——核心合成的 STUNNED 行动 FollowUp 正是 FELL，与源码同型 |
+| `BeforeDeath` | **空重写**（只调基类） | `BeforeDeathMirrors.RegisterIgnored`（名字带 Death，不登记会让整场给不出战损） |
+
+**未验证**：没有在游戏内打过「甲壳寄生虫」遭遇，重掷区间、FELL 的破甲、LIFE_SUCK 的回血量、
+破甲后的眩晕都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1186,7 +1207,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | ~~`BronzeOrb`~~（已适配 §2.32） |
 | 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
 | 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
-| 二 | `ShelledParasite` | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
+| 二 | ~~`ShelledParasite`~~（已适配 §2.33） | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
 | 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |

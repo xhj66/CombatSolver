@@ -23,6 +23,18 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第二幕甲壳寄生虫（`ShelledParasite`）与本体「攻击结算之后」入口（2026-09-21）
+
+- 为 `LIFE_SUCK`（按这次攻击的未被格挡伤害回血）补了本体入口
+  `RegisterMonsterMoveAttackResults(怪物类型名, 行动 Id, handler)`：行动效果的形参里没有伤害结果，
+  而拿「伤害 − 攻击前格挡」去凑是近似（易伤／无实体／虚弱都会改真实数值）。派发点在
+  `MonsterMoveSemantics.ApplyForecastMove` 攻击循环之后、行动效果之前，只在真的有命中时派发。
+- 甲壳寄生虫本体：`MOVE_BRANCH`（`< 20` 且上一步不是 FELL ⇒ FELL，否则**再抽一次**区间 `[20,100)` 的重载；
+  之后两路判断；只读 → 声明为纯读取）、`FELL` 的 2 层破甲（`RequireConst`）、`LIFE_SUCK` 的回血走新入口、
+  `BeforeDeath` 是空重写 ⇒ 登记为忽略。
+- 顺带把 §2.28 里那条「层数归零的甲壳寄生虫破甲」从**显式失败**接成真实现：源码 `OnArmorBreak` 最后是
+  `SetMoveImmediate(_stunnedState, true)`，对应核心 `ForceStunnedMove(owner, "FELL")`。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.33。
 ## 未发布：第二幕首领铜制自动机（`BronzeAutomaton`）与铜制球体（`BronzeOrb`）（2026-09-21）
 
 - 两只一起做（自动机开场就召唤球体）：自动机的分支**一次 RNG 都不抽**（计数到 4 ⇒ HYPER_BEAM，
