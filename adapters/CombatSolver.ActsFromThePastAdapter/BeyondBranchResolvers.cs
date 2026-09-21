@@ -31,12 +31,13 @@ internal static class BeyondBranchResolvers
             "SpireGrowth",
             "MOVE_BRANCH",
             SpireGrowth);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Maw", "MOVE_BRANCH", Maw);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth"];
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -115,6 +116,39 @@ internal static class BeyondBranchResolvers
         => log.Count > 1
             && string.Equals(log[^1], moveId, StringComparison.Ordinal)
             && string.Equals(log[^2], moveId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Maw.SelectNextMove：先把回合计数 +1；还没咆哮过就 **不抽 RNG** 直接 ROAR；否则抽一次
+    /// <c>NextInt(100)</c>，50 以下且上一步不是两种啃咬就按「段数 &gt; 1」选多段／单段啃咬；
+    /// 再不然上一步不是 SLAM 且不是啃咬就 SLAM；否则流口水。
+    /// </summary>
+    /// <remarks>
+    /// 它写自己的两个标量（<c>_turnCount</c> 每回合 +1、ROAR 时置 <c>_roared</c>），所以**不在**
+    /// 纯读取名单里；ROAR 那条路径不抽 RNG 的短路必须保持，否则后续回合抽样整体错位。
+    /// 段数 <c>NomHitCount = TurnCount / 2</c> 由动态攻击值那侧现算（见 BeyondMoveEffects）。
+    /// </remarks>
+    private static string Maw(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = simulator;
+        int turnCount = combat.GetMonsterInt(monster.Creature, "_turnCount") + 1;
+        combat.SetMonsterInt(monster.Creature, "_turnCount", turnCount);
+        if (!combat.GetMonsterBool(monster.Creature, "_roared"))
+            return "ROAR";
+        int num = rng.NextInt(100);
+        bool lastNom = LastMove(log, "NOMNOMNOM_SINGLE") || LastMove(log, "NOMNOMNOM_MULTI");
+        if (num < 50 && !lastNom)
+            return turnCount / 2 <= 1 ? "NOMNOMNOM_SINGLE" : "NOMNOMNOM_MULTI";
+        if (!LastMove(log, "SLAM") && !lastNom)
+            return "SLAM";
+        return "DROOL";
+    }
 
     /// <summary>
     /// Spiker.SelectNextMove：先看自己的荆棘次数——**超过 5 次就直接攻击且一次 RNG 都不抽**；

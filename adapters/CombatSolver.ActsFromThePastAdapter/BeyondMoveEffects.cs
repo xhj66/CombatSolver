@@ -8,7 +8,6 @@ using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Death;
 using CombatSolver.Engine.InCombat.Simulation;
-
 namespace CombatSolver.ActsFromThePastAdapter;
 
 /// <summary>
@@ -27,6 +26,7 @@ internal static class BeyondMoveEffects
         "Spiker",
         "OrbWalker",
         "SpireGrowth",
+        "Maw",
     ];
 
     /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
@@ -88,6 +88,73 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SpireGrowth", "CONSTRICT", SpireGrowthConstrict);
         ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("ConstrictedPower", ConstrictedPowerTurnEnd);
         AfterDeathMirrors.Register(_constrictedPowerType, ConstrictedPowerAfterDeath);
+
+        // --- 大嘴（Maw） ---
+        // 开场 _turnCount = 1、_roared = false 是字段初值（根捕获时读实机实例）；分支每回合 +1 并读这两个值。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Maw", "_turnCount", "_roared");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Maw", "TerrifyDuration", "StrUp");
+        // ROAR：给每个活着的目标 TerrifyDuration 层虚弱与破甲，然后把自己标记成「已咆哮」。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Maw", "ROAR", MawRoar);
+        // DROOL：给自己 StrUp 点力量。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Maw", "DROOL", MawDrool);
+        // NOMNOMNOM_MULTI 的段数是 TurnCount / 2 现算的（NOMNOMNOM_SINGLE 是常量 5，已在常量表里）。
+        ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("Maw", "NOMNOMNOM_MULTI", MawNomNomNom);
+        // BeforeDeath 只有一句死亡音效，登记为忽略（名字带 Death，不登记会让整场给不出战损）。
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Maw"));
+    }
+
+    /// <summary>
+    /// Maw.NomNomNom 的多段版本：伤害固定 5，段数 = <c>TurnCount / 2</c>（向下取整，源码 <c>NomHitCount</c>）。
+    /// </summary>
+    private static BranchMonsterAttack MawNomNomNom(
+        SimulatedCombatState combat,
+        MonsterModel monster)
+        => new(
+            5,
+            combat.GetMonsterInt(monster.Creature, "_turnCount") / 2);
+
+    /// <summary>
+    /// Maw.Roar：给每个活着的目标挂 <c>TerrifyDuration</c> 层虚弱与破甲，并把 <c>_roared</c> 置真
+    /// （分支靠它决定「开场第一动必是 ROAR」）。
+    /// </summary>
+    private static bool MawRoar(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        int duration = combat.GetMonsterStaticInt(move.Owner, "TerrifyDuration");
+        if (simulator.State.GetCreature(player).IsAlive)
+        {
+            combat.Apply<WeakPower>(player, duration, move.Owner);
+            combat.Apply<FrailPower>(player, duration, move.Owner);
+        }
+        combat.SetMonsterBool(move.Owner, "_roared", true);
+        return true;
+    }
+
+    /// <summary>Maw.Drool：给自己 <c>StrUp</c> 点力量。</summary>
+    private static bool MawDrool(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.Apply<StrengthPower>(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "StrUp"),
+            move.Owner);
+        return true;
     }
 
     /// <summary>

@@ -1,5 +1,18 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕大嘴（`Maw`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.Maw`（先 `_turnCount+1`，未咆哮则**不抽 RNG** 直接 ROAR，
+  再 `NextInt(100)`，`50 以下且上一步不是两种啃咬` 时按 `_turnCount/2` 选多段／单段，再 SLAM／DROOL）、
+  `RegisterMonsterStateMembers("Maw", {"_turnCount","_roared"})`、
+  `RegisterStaticIntMembers("Maw", {"TerrifyDuration","StrUp"})`、`MawRoar`（虚弱＋破甲＋置 `_roared`）、
+  `MawDrool`（力量）、`RegisterMonsterAttackValues("Maw","NOMNOMNOM_MULTI", …)`（`BranchMonsterAttack(5,
+  _turnCount/2)`）与 `BeforeDeathMirrors.RegisterIgnored(Maw)` 全部在场；部署产物与工作区构建哈希
+  逐字节相同（AFTP 70,656 B；核心本轮未改）。
+- **未验证**：没有在游戏内打过「大嘴」遭遇，咆哮后每回合的啃咬段数、ROAR 的两次减益、DROOL 的力量
+  都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕塔蔓（`SpireGrowth`）与 AFTP `ConstrictedPower`（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

@@ -12,6 +12,14 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕大嘴（`Maw`）（2026-09-21）
+
+- 第三幕再补一只：`Maw`。它的段数是现算的（`NOMNOMNOM_MULTI` 的 `NomHitCount = TurnCount / 2`），
+  所以用上一批的动态攻击值入口；分支每回合把 `_turnCount` +1、并且**还没咆哮过就一次 RNG 都不抽**
+  直接 ROAR（这条短路必须保持），两个标量（`_turnCount`、`_roared`）进状态名单；
+  ROAR 给每个活着的目标 `TerrifyDuration` 层虚弱与破甲并置 `_roared`，DROOL 给自己 `StrUp` 点力量
+  （两个数值走静态数值成员）；`BeforeDeath` 只有一句死亡音效，登记为忽略。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.23。
 ## 未发布：第三幕塔蔓（`SpireGrowth`）与 AFTP `ConstrictedPower`（2026-09-21）
 
 - `SpireGrowth` 的缠绕**不是**原版 `ConstrictPower`，而是 AFTP 自己的 `ConstrictedPower`；核心对原版那条
