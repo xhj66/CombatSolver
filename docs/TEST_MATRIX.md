@@ -1,5 +1,23 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕巨头（`GiantHead`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.GiantHead`（`Count <= 1` 时**不抽 RNG** 直接 IT_IS_TIME、
+  且只在 `Count > -6` 时再减一次；否则先减计数再 `NextInt(100)`，两处 `LastTwoMoves` 判定）、
+  `RegisterMonsterStateMembers("GiantHead", {"_count"})`、
+  `RegisterStaticIntMembers("GiantHead", {"StartingDeathDmg"})`、
+  `RequireConst("GiantHead","IncrementDmg",5)` 与 `("GiantHead","GlareDuration",1)`、
+  `GiantHeadGlare`（虚弱）、`NoNonAttackEffect`（COUNT 的非攻击部分实为空）、
+  `RegisterMonsterAttackValues("GiantHead","IT_IS_TIME", …)`
+  （`StartingDeathDmg - _count * IncrementDmg`）与 `BeforeDeathMirrors.RegisterIgnored(GiantHead)`
+  全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 71,680 B；核心本轮未改）。
+- 逐行对照的一个结论：`COUNT` 的意图表挂着 `DebuffIntent(false)`，但回调 `CountMove` 只打 13 点、
+  没有任何减益实现——模拟以**回调**为准（真实游戏跑的也是回调），因此把非攻击部分登记成空操作，
+  免得界面报一条假的「未支持意图」。
+- **未验证**：没有在游戏内打过「巨头」遭遇，`IT_IS_TIME` 的伤害曲线、GLARE 的虚弱层数、COUNT 无减益
+  三条都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕大嘴（`Maw`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

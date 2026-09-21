@@ -27,6 +27,7 @@ internal static class BeyondMoveEffects
         "OrbWalker",
         "SpireGrowth",
         "Maw",
+        "GiantHead",
     ];
 
     /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
@@ -34,6 +35,12 @@ internal static class BeyondMoveEffects
 
     /// <summary>SpireGrowth 每次缠绕的层数（AFTP <c>ConstrictAmount</c>，A9+ 12／否则 10）。</summary>
     private static int _spireGrowthConstrictAmount;
+
+    /// <summary>GiantHead 每次 COUNT 递减后给 IT_IS_TIME 加的伤害（AFTP <c>IncrementDmg</c>）。</summary>
+    private static int _giantHeadIncrementDmg;
+
+    /// <summary>GiantHead 的 GLARE 给的虚弱层数（AFTP <c>GlareDuration</c>）。</summary>
+    private static int _giantHeadGlareDuration;
 
     /// <summary>Repulsor 的 Daze 张数（AFTP <c>DazeAmount</c>）。</summary>
     private static int _repulsorDazeAmount;
@@ -52,6 +59,8 @@ internal static class BeyondMoveEffects
         _constrictedPowerType = AfpReflection.RequireType("ActsFromThePast.ConstrictedPower");
         _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterSideTurnEnd", 3);
         _ = AfpReflection.RequireOverride("ConstrictedPower", "AfterDeath", 4);
+        _giantHeadIncrementDmg = AfpReflection.RequireConst("GiantHead", "IncrementDmg", 5);
+        _giantHeadGlareDuration = AfpReflection.RequireConst("GiantHead", "GlareDuration", 1);
     }
 
     public static void RegisterAll()
@@ -101,6 +110,70 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("Maw", "NOMNOMNOM_MULTI", MawNomNomNom);
         // BeforeDeath 只有一句死亡音效，登记为忽略（名字带 Death，不登记会让整场给不出战损）。
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Maw"));
+
+        // --- 巨头（GiantHead） ---
+        // 开场 _count = 4（A8+）／5 与 1 层 SlowPower 都发生在 AfterAddedToRoom（已在根里）；
+        // 分支每回合减一次计数，所以它进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("GiantHead", "_count");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("GiantHead", "StartingDeathDmg");
+        // GLARE：给每个活着的目标 GlareDuration 层虚弱。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("GiantHead", "GLARE", GiantHeadGlare);
+        // COUNT：意图表里挂了一个 DebuffIntent，但源码回调只打 13 点（没有任何减益实现），
+        // 所以登记成空操作——它表达的是「这条行动的非攻击部分就是没有」，免得界面报一条假的未支持意图。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("GiantHead", "COUNT", NoNonAttackEffect);
+        // IT_IS_TIME 的伤害是现算的：StartingDeathDmg - Count * IncrementDmg（Count 为负时继续变大）。
+        ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("GiantHead", "IT_IS_TIME", GiantHeadItIsTime);
+        // BeforeDeath 只有一句死亡音效，登记为忽略（名字带 Death，不登记会让整场给不出战损）。
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.GiantHead"));
+    }
+
+    /// <summary>
+    /// GiantHead.ItIsTime：单段伤害 = <c>StartingDeathDmg - Count * IncrementDmg</c>
+    /// （<c>StartingDeathDmg</c> 按 A9 冻结，<c>IncrementDmg</c> 自检里钉死）。
+    /// </summary>
+    private static BranchMonsterAttack GiantHeadItIsTime(
+        SimulatedCombatState combat,
+        MonsterModel monster)
+        => new(
+            combat.GetMonsterStaticInt(monster.Creature, "StartingDeathDmg")
+                - combat.GetMonsterInt(monster.Creature, "_count") * _giantHeadIncrementDmg,
+            1);
+
+    /// <summary>GiantHead.Glare：给每个活着的目标 <c>GlareDuration</c> 层虚弱。</summary>
+    private static bool GiantHeadGlare(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.Apply<WeakPower>(player, _giantHeadGlareDuration, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// 「这条行动没有非攻击部分」：源码回调里除了攻击什么都不做时用它登记，
+    /// 压掉预测器里由意图表带出来的假「未支持意图」。
+    /// </summary>
+    private static bool NoNonAttackEffect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = combat;
+        _ = move;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        return true;
     }
 
     /// <summary>

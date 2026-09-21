@@ -673,6 +673,22 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 **未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.24 第三幕：巨头（`GiantHead`）
+
+| 部位 | 源码（`ActsFromThePast.GiantHead`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom`：`_count = 4`（A8+）／`5`，并挂 1 层原版 `SlowPower` | **不需要代码**：两件都发生在根捕获之前 |
+| 标量状态 | `_count` 每回合被分支减一次 | `RegisterMonsterStateMembers("GiantHead", "_count")` |
+| `MOVE_BRANCH` | `Count <= 1` 时**一次 RNG 都不抽**直接 `IT_IS_TIME`（且只在 `Count > -6` 时再减一次，这是源码的下界）；否则先减计数，再抽 `NextInt(100)`：`< 50` 且最近没连出两次 GLARE ⇒ GLARE、反之 COUNT；`>= 50` 且最近没连出两次 COUNT ⇒ COUNT、反之 GLARE | `BeyondBranchResolvers.GiantHead`（计数下界与抽样顺序照抄）。写自己的计数，**不在**纯读取名单 |
+| `IT_IS_TIME` | `DynamicSingleAttackIntent(() => ItIsTimeDamage)`，`ItIsTimeDamage = StartingDeathDmg - Count * 5` | `RegisterMonsterAttackValues("GiantHead","IT_IS_TIME", …)`：`StartingDeathDmg`（A9+ 40／否则 30，静态数值成员）减 `_count × IncrementDmg`（自检钉死 5） |
+| `GLARE` | 给每个活着的目标 1 层虚弱（`GlareDuration`） | `GiantHeadGlare`；层数用自检钉死的 `GlareDuration` |
+| `COUNT` | 意图表是 `SingleAttackIntent(13)` **＋ `DebuffIntent(false)`**，但回调只打 13 点——没有任何减益实现 | 攻击已在常量表；非攻击部分登记成**空操作**（`NoNonAttackEffect`），压掉界面由意图表带出来的假「未支持意图」。这里以**回调**为准：真实游戏跑的也是回调 |
+| `BeforeDeath` | 一句死亡音效 | `BeforeDeathMirrors.RegisterIgnored(GiantHead)`（名字带 Death，不登记会让整场给不出战损） |
+
+**未验证**：没有在游戏内打过「巨头」遭遇，计数下界后的 `IT_IS_TIME` 伤害曲线、GLARE 的虚弱层数、
+COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编译阅读）；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -916,7 +932,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23，动态段数）、Exploder |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24，动态伤害）、Exploder |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
@@ -978,7 +994,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 档 | 怪物 | 依据 |
 | --- | --- | --- |
-| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23） | 完整读过 |
+| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24） | 完整读过 |
 | 只缺「已有能力」的登记活 | `Reptomancer`（分支带重掷 + `SPAWN_DAGGER` 用已有的按类型生成入口 + 两个攻击） | 成员清单与常量攻击表；**尚未逐行读完**，动手前要按 §3.3 复核 |
 | 卡在本体能力上 | `Exploder`：源码的 `EXPLODE` 用 **`CreatureCmd.Damage`（直伤）**而不是 `DamageCmd.Attack`，而它的 `DeathBlowIntent` 是攻击意图、会被通用攻击循环当攻击结算——要精确复刻就得有「这条第三方行动的意图伤害不由通用攻击循环结算」的入口；`Transient`：`ShiftingPower` 要给自己的 `TemporaryStrengthPower` 子类施加负力量（需要按 `Type` 施加临时力量的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪）；`Deca`/`Donu`：AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；`Maw`/`GiantHead`：`NOMNOMNOM_MULTI`/`IT_IS_TIME` 是 `Dynamic*AttackIntent`（动态攻击值已就绪，但两只都还要 `BeforeDeath` 与分支）；`Nemesis`：自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化；`WrithingMass`：分支用私有 RNG 抽行动；`Darkling`/`AwakenedOne`：复活/重生（`DEAD_MOVE`/`REATTACH_MOVE`/`REBIRTH` 与内部数据）；`TimeEater`：`TimeWarpPower` 的回合计数与 `HASTE` | 完整读过 `Exploder`／`Transient`／`Deca`／`OrbWalker`；其余为成员清单初判 |
 

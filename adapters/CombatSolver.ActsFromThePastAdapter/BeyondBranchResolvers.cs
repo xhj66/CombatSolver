@@ -32,12 +32,13 @@ internal static class BeyondBranchResolvers
             "MOVE_BRANCH",
             SpireGrowth);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Maw", "MOVE_BRANCH", Maw);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GiantHead", "MOVE_BRANCH", GiantHead);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw"];
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -148,6 +149,41 @@ internal static class BeyondBranchResolvers
         if (!LastMove(log, "SLAM") && !lastNom)
             return "SLAM";
         return "DROOL";
+    }
+
+    /// <summary>
+    /// GiantHead.SelectNextMove：计数 <c>&lt;= 1</c> 时**一次 RNG 都不抽**、直接 `IT_IS_TIME`
+    /// （并且只在计数 <c>&gt; -6</c> 时再减一次，源码就是这条下界）；否则先减计数，再抽一次
+    /// <c>NextInt(100)</c>：50 以下且最近没连出两次 GLARE 就 GLARE、反之 COUNT；50 及以上且最近没连出
+    /// 两次 COUNT 就 COUNT、反之 GLARE。
+    /// </summary>
+    /// <remarks>
+    /// 开场那 4／5 的计数由 <c>AfterAddedToRoom</c> 写入（根捕获时已在实机实例上），这里每回合减一次；
+    /// 它写自己的计数，所以**不在**纯读取名单里。计数为负会让 <c>IT_IS_TIME</c> 的伤害继续变大
+    /// （<c>StartingDeathDmg - Count * 5</c>），这段下界逻辑必须照抄。
+    /// </remarks>
+    private static string GiantHead(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = simulator;
+        int count = combat.GetMonsterInt(monster.Creature, "_count");
+        if (count <= 1)
+        {
+            if (count > -6)
+                combat.SetMonsterInt(monster.Creature, "_count", count - 1);
+            return "IT_IS_TIME";
+        }
+        combat.SetMonsterInt(monster.Creature, "_count", count - 1);
+        int num = rng.NextInt(100);
+        if (num < 50)
+            return LastTwoMoves(log, "GLARE") ? "COUNT" : "GLARE";
+        return LastTwoMoves(log, "COUNT") ? "GLARE" : "COUNT";
     }
 
     /// <summary>

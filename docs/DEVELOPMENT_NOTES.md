@@ -12,6 +12,16 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕巨头（`GiantHead`）（2026-09-21）
+
+- 第三幕再补一只：`GiantHead`。开场 `_count = 4`（A8+）／5 与 1 层原版 `SlowPower` 都发生在
+  `AfterAddedToRoom`（已在根里），适配只需要：`_count` 进状态名单、分支解析器（`Count <= 1` 时
+  **不抽 RNG** 直接 IT_IS_TIME，且只在 `Count > -6` 时再减一次——源码的下界照抄）、`IT_IS_TIME` 的
+  动态伤害（`StartingDeathDmg - Count * IncrementDmg`，两个常量分别走静态数值成员与 `RequireConst`）、
+  `GLARE` 的虚弱、`BeforeDeath` 登记为忽略（只有音效）。
+- 顺带记一条反编译结论：`COUNT` 的意图表挂着 `DebuffIntent(false)`，但回调只打 13 点、没有减益实现；
+  模拟以回调为准，非攻击部分登记成空操作（`NoNonAttackEffect`），避免界面报一条假的未支持意图。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.24。
 ## 未发布：第三幕大嘴（`Maw`）（2026-09-21）
 
 - 第三幕再补一只：`Maw`。它的段数是现算的（`NOMNOMNOM_MULTI` 的 `NomHitCount = TurnCount / 2`），
