@@ -478,6 +478,7 @@ BeforeSideTurnEndMirrors.RegisterEarly(Type modelType, Action<AbstractModel, Bef
 PowerHiddenStateMirrors.Register(Type powerType, string name, Func<CombatPredictionSimulator, PowerModel, long> read);
 PowerHiddenStateMirrors.RegisterRootCapture(Type powerType, Action<CombatPredictionSimulator, PowerModel, PowerModel> capture);
 AfterAttackMirrors.Register(Type modelType, Action<AbstractModel, AfterAttackMirrorContext> handler);
+BeforeCardPlayedMirrors.Register(Type modelType, Action<AbstractModel, BeforeCardPlayedMirrorContext> handler);
 AfterDeathMirrors.Register(Type modelType, Action<AbstractModel, AfterDeathMirrorContext> handler);
 AfterDeathMirrors.RegisterIgnored(Type modelType);
 BeforeDeathMirrors.Register(Type modelType, Action<AbstractModel, BeforeDeathMirrorContext> handler);

@@ -1056,6 +1056,29 @@ Burn）在预测里由「直接调用升级」等价表达（不依赖那张补�
 Burn 升级与「升级后再塞的是升级版」都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.43 守护者（`Guardian`）的材料批：两个 Power 镜像 ＋ 两处本体补齐
+
+本批**只做材料**：`Guardian` 本体的分支／七个行动／形态切换收尾**下一批**接（它的 Power 镜像与状态播种
+先就位，接本体时不需要再动这些）。两处本体补齐：
+
+- `BeforeCardPlayedMirrors.Register(Type, …)`：尖刺外壳要在**出牌前**记下「这次是攻击牌、来源是谁」，
+  而这张表原先只有泛型注册（`AfterCardPlayedMirrors` 早就有按类型入口）。
+- `SimCreatureState.LoseBlock(decimal)`：`GainBlock` 的报错信息里写着「用 LoseBlock」，但这个方法**从来没实现过**
+  ——「失去格挡」在模拟里一直是空白。补上（扣到 0 为止），守护者的 TWIN_SLAM 转攻击形态要用它清空自己格挡。
+
+| Power | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `ModeShiftPower.AfterDamageReceived` | 层数就是**剩余伤害阈值**：挨到未被格挡的伤害就扣（扣到 0 为止）；归零时若还在执行行动先记 `_pendingModeShift`，否则立刻 `TransitionToDefensiveMode`；已经闭合过（`_closeUpTriggered`）或已死不重复触发 | `ModeShiftDamageReceived`：判据与顺序照抄；转防御形态走 `GuardianTransitionToDefensiveMode`（摘 Power、阈值 +10、自己 20 格挡（`Move`）、`_isOpen = false`，`setMove` 为真时 `ForceMonsterMove(owner, "CLOSE_UP")`） |
+| `SharpHidePower.BeforeCardPlayed` / `AfterCardPlayed` | 出攻击牌时记下来源；出牌后清标记，并让出牌者吃 `Amount` 点 `Unpowered` 伤害（与是否打到守护者无关） | 两个镜像 ＋ `SharpHideAttackState`（`AttackInProgress`／`AttackSource` 随 Fork 复制，给本体死亡时补刀用） |
+
+同时还声明了守护者的五个标量（`_nextThreshold`／`_isOpen`／`_closeUpTriggered`／`_pendingModeShift`／
+`_isExecutingMove`）与两个静态数值（`DmgThresholdBase`／`SharpHideThorns`）——它们的播种发生在
+`AfterAddedToRoom`（根捕获），所以下一批接本体时不需要再补播种代码。
+
+**未验证**：`Guardian` 本体还没接，所以本批没有用户；架起 `ModeShiftPower`／`SharpHidePower` 的
+可观察行为、`LoseBlock` 的语义都**未实机验证**，也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、

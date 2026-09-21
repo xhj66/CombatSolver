@@ -1,5 +1,18 @@
 # CombatSolver 测试清单
 
+## 未发布：守护者材料批（两个 Power 镜像 + BeforeCardPlayed 入口 + LoseBlock）（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `BeforeCardPlayedMirrors.Register(Type, …)`
+  （含登记锁与 Seal）与 `SimCreatureState.LoseBlock(decimal)` 在场；适配里 `ModeShiftDamageReceived`、
+  `SharpHideBeforeCardPlayed`、`SharpHideAfterCardPlayed`、`SharpHideAttackState`（`IPredictionStateForkable`）、
+  守护者的五个状态成员与两个静态数值成员、三条 `RequireOverride`（ModeShift 6 参 / SharpHide 1 参与 2 参）
+  全部在场；两份部署产物与工作区构建哈希逐字节相同（核心 6,297,088 B、AFTP 112,128 B）。
+- **本批没有用户**：`Guardian` 本体（分支／七个行动／形态切换）**下一批**接。因此**未验证**：两个 Power 镜像
+  的可观察行为与 `LoseBlock` 的语义都没有实机或夹具证据，证据只到「登记与入口在已部署产物里存在」。
+- 顺带修掉一处本体空白：`SimCreatureState.GainBlock` 的报错信息里写着「Use LoseBlock for block loss」，
+  但 `LoseBlock` 从未实现——「失去格挡」此前在模拟里无处表达。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第一幕首领六角幽魂（`Hexaghost`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

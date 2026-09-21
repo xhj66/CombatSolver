@@ -74,6 +74,17 @@ internal sealed class SimCreatureState
         Block = (int)Math.Min(Block + amount, 999999999m);
     }
 
+    /// <summary>镜像 <c>CreatureCmd.LoseBlock</c>：按数值扣格挡，不会扣成负数。</summary>
+    public void LoseBlock(decimal amount)
+    {
+        if (amount < 0m)
+        {
+            throw new ArgumentException("amount must be positive.", nameof(amount));
+        }
+
+        Block = Math.Max(0, Block - (int)Math.Min(amount, 999999999m));
+    }
+
     public void Heal(decimal amount)
     {
         if (amount < 0m)

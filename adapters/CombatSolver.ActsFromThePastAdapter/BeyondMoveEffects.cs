@@ -55,7 +55,12 @@ internal static class BeyondMoveEffects
         "WrithingMass",
         "TimeEater",
         "Hexaghost",
+        "Guardian",
     ];
+
+    /// <summary>AFTP 自己的 <c>ModeShiftPower</c>（守护者的形态切换阈值）与 <c>SharpHidePower</c>（尖刺外壳）。</summary>
+    private static Type _modeShiftType = null!;
+    private static Type _sharpHideType = null!;
 
     /// <summary>AFTP 自己的 <c>TimeWarpPower</c>（时间吞噬者的「时间扭曲」）与 <c>DrawReductionPower</c>。</summary>
     private static Type _timeWarpPowerType = null!;
@@ -226,6 +231,12 @@ internal static class BeyondMoveEffects
         _drawReductionType = AfpReflection.RequireType("ActsFromThePast.DrawReductionPower");
         _ = AfpReflection.RequireOverride("DrawReductionPower", "ModifyHandDraw", 2);
         _ = AfpReflection.RequireOverride("DrawReductionPower", "AfterSideTurnEnd", 3);
+        _modeShiftType = AfpReflection.RequireType("ActsFromThePast.ModeShiftPower");
+        _ = AfpReflection.RequireOverride("ModeShiftPower", "AfterDamageReceived", 6);
+        _sharpHideType = AfpReflection.RequireType("ActsFromThePast.SharpHidePower");
+        _ = AfpReflection.RequireOverride("SharpHidePower", "BeforeCardPlayed", 1);
+        _ = AfpReflection.RequireOverride("SharpHidePower", "AfterCardPlayed", 2);
+        AfpReflection.VerifyAscensionHelper();
     }
 
     public static void RegisterAll()
@@ -541,6 +552,161 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "SEAR", HexaghostSear);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "INFERNO", HexaghostInferno);
         // AfterDeath 早已在 ExordiumHooks 登记为忽略（只隐藏球体与震屏）；它同样没有 BeforeDeath 重写。
+
+        // --- 守护者（Guardian，第一幕精英）：两个 Power 的镜像（本体行动下一批接） ---
+        // 形态切换要读写的标量（_isOpen／_closeUpTriggered／_pendingModeShift／_isExecutingMove／_nextThreshold）
+        // 先声明进状态名单；它们的播种发生在 AfterAddedToRoom（根捕获），所以下一批接本体时不需要补播种代码。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers(
+            "Guardian",
+            "_nextThreshold",
+            "_isOpen",
+            "_closeUpTriggered",
+            "_pendingModeShift",
+            "_isExecutingMove");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers(
+            "Guardian",
+            "DmgThresholdBase",
+            "SharpHideThorns");
+        AfterDamageReceivedMirrors.Register(_modeShiftType, ModeShiftDamageReceived);
+        BeforeCardPlayedMirrors.Register(_sharpHideType, SharpHideBeforeCardPlayed);
+        AfterCardPlayedMirrors.Register(_sharpHideType, SharpHideAfterCardPlayed);
+    }
+
+    /// <summary>
+    /// AFTP <c>ModeShiftPower.AfterDamageReceived</c>：把**未被格挡的伤害**从阈值里扣掉（层数就是剩余阈值），
+    /// 扣到 0 就转防御形态——正在执行行动时先记 <c>_pendingModeShift</c>，等这次行动收尾再切。
+    /// </summary>
+    private static void ModeShiftDamageReceived(AbstractModel model, AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner || context.Result.UnblockedDamage <= 0)
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+            throw new PredictionUnsupportedException("形态切换缺少可写的预测状态。");
+        string monsterTypeName = power.Owner.Monster?.GetType().Name ?? string.Empty;
+        if (!string.Equals(monsterTypeName, "Guardian", StringComparison.Ordinal)
+            || combat.GetMonsterBool(power.Owner, "_isOpen") is false
+            || combat.GetMonsterBool(power.Owner, "_closeUpTriggered")
+            || context.Simulator.State.GetCreature(power.Owner).IsDead)
+        {
+            return;
+        }
+        ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("形态切换缺少可写的预测状态。");
+        int remaining = Math.Max(0, power.Amount - context.Result.UnblockedDamage);
+        effects.SetPowerAmount(power, remaining);
+        if (remaining > 0)
+            return;
+        combat.SetMonsterBool(power.Owner, "_closeUpTriggered", true);
+        if (combat.GetMonsterBool(power.Owner, "_isExecutingMove"))
+        {
+            combat.SetMonsterBool(power.Owner, "_pendingModeShift", true);
+            return;
+        }
+        GuardianTransitionToDefensiveMode(context.Simulator, combat, power.Owner, setMove: false);
+    }
+
+    /// <summary>
+    /// Guardian.TransitionToDefensiveMode：摘掉 `ModeShiftPower`、阈值 +10、自己 20 格挡（<c>Move</c>）、
+    /// 置 `_isOpen = false`；<paramref name="setMove"/> 为真时把当前行动强制改成 CLOSE_UP
+    /// （源码是 <c>SetMoveImmediate(_closeUpState, true)</c>；CLOSE_UP 的后继链是固定的 ROLL_ATTACK→TWIN_SLAM，
+    /// 所以核心这个没有 must-perform 标志的强制入口在这里等价）。
+    /// </summary>
+    internal static void GuardianTransitionToDefensiveMode(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        Creature guardian,
+        bool setMove)
+    {
+        foreach (PowerModel power in combat.EffectivePowers())
+        {
+            if (ReferenceEquals(power.Owner, guardian) && power.GetType() == _modeShiftType && power.Amount > 0)
+                combat.SetPowerAmount(power, 0);
+        }
+        combat.SetMonsterInt(
+            guardian,
+            "_nextThreshold",
+            combat.GetMonsterInt(guardian, "_nextThreshold") + 10);
+        simulator.GainBlock(guardian, 20, ValueProp.Move);
+        combat.SetMonsterBool(guardian, "_isOpen", false);
+        if (setMove)
+            combat.ForceMonsterMove(guardian, "CLOSE_UP");
+    }
+
+    /// <summary>
+    /// Guardian.TransitionToOffensiveMode：按当前阈值重新挂 `ModeShiftPower`、清空自己的格挡、
+    /// 置 `_isOpen = true` 并把 `_closeUpTriggered` 复位（源码 TWIN_SLAM 里调它）。
+    /// </summary>
+    internal static void GuardianTransitionToOffensiveMode(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        Creature guardian)
+    {
+        combat.ApplyPower(
+            _modeShiftType,
+            guardian,
+            combat.GetMonsterInt(guardian, "_nextThreshold"),
+            guardian);
+        SimCreatureState state = simulator.State.GetCreature(guardian);
+        if (state.Block > 0)
+            state.LoseBlock(state.Block);
+        combat.SetMonsterBool(guardian, "_isOpen", true);
+        combat.SetMonsterBool(guardian, "_closeUpTriggered", false);
+    }
+
+    /// <summary>
+    /// AFTP <c>SharpHidePower.BeforeCardPlayed</c>：打出的是**攻击牌**时记下来源，供 <c>AfterCardPlayed</c>
+    /// 与本体的 <c>BeforeDeath</c>（死亡时补一刀）使用。状态放预测状态里（随 Fork 复制）。
+    /// </summary>
+    private static void SharpHideBeforeCardPlayed(
+        AbstractModel model,
+        BeforeCardPlayedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.CardPlay.Card.Type != CardType.Attack)
+            return;
+        SharpHideAttackState state = context.Simulator.StateStore
+            .Get(power, static () => new SharpHideAttackState());
+        state.AttackInProgress = true;
+        state.AttackSource = context.CardPlay.Card.Owner?.Creature;
+    }
+
+    /// <summary>
+    /// AFTP <c>SharpHidePower.AfterCardPlayed</c>：清掉记录的来源；只要打出的是攻击牌，就让出牌者吃
+    /// <c>Amount</c> 点 <c>Unpowered</c> 伤害（与是否打到守护者无关）。
+    /// </summary>
+    private static void SharpHideAfterCardPlayed(
+        AbstractModel model,
+        AfterCardPlayedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        SharpHideAttackState state = context.Simulator.StateStore
+            .Get(power, static () => new SharpHideAttackState());
+        state.AttackInProgress = false;
+        state.AttackSource = null;
+        if (context.CardPlay.Card.Type != CardType.Attack)
+            return;
+        Creature? player = context.CardPlay.Card.Owner?.Creature;
+        if (player is null || !context.Simulator.State.GetCreature(player).IsAlive)
+            return;
+        using (context.Simulator.PushDamageSource(
+            CombatDamageSource.For(CombatDamageSourceKind.Power, "SharpHidePower")))
+        {
+            context.Simulator.Damage(player, power.Amount, ValueProp.Unpowered, null);
+        }
+    }
+
+    /// <summary>
+    /// AFTP <c>SharpHidePower</c> 的两个私有标记（哪次攻击正在进行、来源是谁）在预测里的分支副本；
+    /// 本体死亡时要用它补那一刀，所以必须随 Fork 复制。
+    /// </summary>
+    internal sealed class SharpHideAttackState : IPredictionStateForkable
+    {
+        public bool AttackInProgress { get; set; }
+
+        public Creature? AttackSource { get; set; }
+
+        public object Fork(PredictionForkContext context) => MemberwiseClone();
     }
 
     /// <summary>Hexaghost.DIVIDER：段数固定 6，伤害是当时算好的 <c>_dividerDamage</c>。</summary>

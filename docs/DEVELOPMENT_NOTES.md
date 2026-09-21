@@ -23,6 +23,16 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：守护者材料批（两个 Power 镜像 + BeforeCardPlayed 入口 + LoseBlock）（2026-09-21）
+
+- 本体两处补齐：① `BeforeCardPlayedMirrors.Register(Type, …)`——尖刺外壳要在出牌前记「这是攻击牌、来源是谁」，
+  而这张表原先只有泛型注册；② `SimCreatureState.LoseBlock(decimal)`——`GainBlock` 的报错里写着这个方法，
+  但它从未实现过，「失去格挡」此前在模拟里无处表达（守护者转攻击形态要清空自己的格挡）。
+- `ModeShiftPower`（层数＝剩余伤害阈值；归零时若正在执行行动则记 `_pendingModeShift`，否则立刻转防御形态：
+  摘 Power、阈值 +10、20 格挡（Move）、`_isOpen = false`，必要时强制改到 CLOSE_UP）与 `SharpHidePower`
+  （出牌前记攻击来源、出牌后出牌者吃 `Amount` 点 Unpowered 伤害；两个标记放随 Fork 复制的预测状态）
+  两个镜像都登记好；守护者的五个标量与两个静态数值也在本批声明（播种在根捕获）。
+- `Guardian` 本体下一批接。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.43。
 ## 未发布：第一幕首领六角幽魂（`Hexaghost`）（2026-09-21）
 
 - 分支 `MOVE_BRANCH` 一次 RNG 都不抽（按 `_orbActiveCount` 查表），声明为纯读取；初始行动 ACTIVATE 与随后被
