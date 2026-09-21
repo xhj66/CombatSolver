@@ -45,13 +45,14 @@ internal static class BeyondBranchResolvers
             "ShelledParasite",
             "MOVE_BRANCH",
             ShelledParasite);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Collector", "MOVE_BRANCH", Collector);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
-         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite"];
+         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -260,6 +261,60 @@ internal static class BeyondBranchResolvers
         if (num < 60)
             return LastTwoMoves(log, "DOUBLE_STRIKE") ? "LIFE_SUCK" : "DOUBLE_STRIKE";
         return LastTwoMoves(log, "LIFE_SUCK") ? "DOUBLE_STRIKE" : "LIFE_SUCK";
+    }
+
+    /// <summary>
+    /// Collector.SelectNextMove：回合计数 +1；`_initialSpawn` 还没清 ⇒ SPAWN（不抽 RNG）；≥ 3 回合且大招
+    /// 没用过 ⇒ MEGA_DEBUFF（也不抽 RNG）；否则抽 `NextInt(100)`，`&lt;= 25` 且有火炬头死了且上一步不是
+    /// REVIVE ⇒ REVIVE；`&lt;= 70` 且最近没连出两次 FIREBALL ⇒ FIREBALL；再不然上一步不是 BUFF ⇒ BUFF，
+    /// 否则 FIREBALL。
+    /// </summary>
+    /// <remarks>
+    /// 三处「不抽 RNG」的短路与 `IsMinionDead`（存活火炬头 < 布点表里 `torch` 槽数）都逐条照抄；
+    /// 它写自己的三个标量，**不在**纯读取名单里。
+    /// </remarks>
+    private static string Collector(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        int turnsTaken = combat.GetMonsterInt(monster.Creature, "_turnsTaken") + 1;
+        combat.SetMonsterInt(monster.Creature, "_turnsTaken", turnsTaken);
+        if (combat.GetMonsterBool(monster.Creature, "_initialSpawn"))
+            return "SPAWN";
+        if (turnsTaken >= 3 && !combat.GetMonsterBool(monster.Creature, "_ultUsed"))
+            return "MEGA_DEBUFF";
+        int num = rng.NextInt(100);
+        if (num <= 25 && IsCollectorMinionDead(monster, combat, simulator) && !LastMove(log, "REVIVE"))
+            return "REVIVE";
+        if (num <= 70 && !LastTwoMoves(log, "FIREBALL"))
+            return "FIREBALL";
+        return LastMove(log, "BUFF") ? "FIREBALL" : "BUFF";
+    }
+
+    /// <summary>Collector.IsMinionDead：存活队友（不含自己）少于布点表里 `torch` 开头的槽位数。</summary>
+    private static bool IsCollectorMinionDead(
+        MonsterModel monster,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        int alive = 0;
+        foreach (Creature teammate in combat.GetTeammatesOf(monster.Creature))
+        {
+            if (teammate != monster.Creature && simulator.State.GetCreature(teammate).IsAlive)
+                alive++;
+        }
+        int torchSlots = 0;
+        foreach (string slot in combat.EncounterSlots)
+        {
+            if (slot.StartsWith("torch", StringComparison.Ordinal))
+                torchSlots++;
+        }
+        return alive < torchSlots;
     }
 
     /// <summary>

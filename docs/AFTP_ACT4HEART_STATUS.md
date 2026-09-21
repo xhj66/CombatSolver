@@ -871,6 +871,26 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 破甲后的眩晕都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.34 第二幕：收集者（`Collector`）
+
+它的 `REVIVE` **不是**自身复活，而是往**空的**火炬头槽位补召唤（与 `SPAWN` 的唯一区别就是这一条要查占用）——
+这一条是反编译读出来的，值得记下来。
+
+| 部位 | 源码（`ActsFromThePast.Collector`） | 适配 |
+| --- | --- | --- |
+| 开场 | `_turnsTaken=0`／`_ultUsed=false`／`_initialSpawn=true`／`_alive=true` ＋ `Died` 事件与火焰粒子循环 | 前三个标量在 `AfterAddedToRoom` 写入（已在根里播种）；`_alive` 只被粒子循环读、`Died` 另一头也是它 ⇒ 纯表现，不登记 |
+| `MOVE_BRANCH` | 计数 +1；`_initialSpawn` 未清 ⇒ `SPAWN`（**不抽 RNG**）；≥ 3 回合且 `_ultUsed` 为假 ⇒ `MEGA_DEBUFF`（**也不抽 RNG**）；否则抽 `NextInt(100)`：`&lt;= 25` 且有火炬头死了且上一步不是 `REVIVE` ⇒ `REVIVE`；`&lt;= 70` 且最近没连出两次 `FIREBALL` ⇒ `FIREBALL`；再不然上一步不是 `BUFF` ⇒ `BUFF`，否则 `FIREBALL` | `BeyondBranchResolvers.Collector`（三处短路照抄）＋ `IsCollectorMinionDead`（存活火炬头 < 布点表 `torch` 槽数）；三个标量进状态名单 |
+| `SPAWN` | 清 `_initialSpawn`；给**每个** `torch` 槽位生成一只火炬头（不查占用） | `CollectorSpawn`（`SpawnByType(…, TorchHead 类型, slot, null, minion: true)`） |
+| `REVIVE` | 给**空的** `torch` 槽位各生成一只火炬头 | `CollectorRevive`（按存活队友 `SlotName` 建占用集合） |
+| `BUFF` | 自己 `BlockAmount` 格挡（`Move`）＋ 每个活着的队友（含自己）`StrengthAmount` 力量 | `CollectorBuff`；两个数值走静态数值成员 |
+| `MEGA_DEBUFF` | 每个活着的目标 `MegaDebuffAmount` 层虚弱 ＋ 易伤 ＋ 破甲，然后 `_ultUsed = true` | `CollectorMegaDebuff`；层数走静态数值成员 |
+| `FIREBALL` | `SingleAttackIntent(FireballDamage)` | 已在常量表 |
+| `BeforeDeath` | 震屏 ＋ 杀掉存活火炬头 | 后半是**原版规则**（主敌死亡杀掉存活的 secondary 队友，火炬头都带 `MinionPower`）⇒ 登记为忽略 |
+
+**未验证**：没有在游戏内打过「收集者」遭遇，三处 RNG 短路、两只召唤行动（含占用检查的差别）、
+`BUFF`／`MEGA_DEBUFF` 的数值都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1206,7 +1226,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
 | 二 | ~~`BronzeOrb`~~（已适配 §2.32） |
 | 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
-| 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
+| 二 | ~~`Collector`~~（已适配 §2.34） | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | ~~`ShelledParasite`~~（已适配 §2.33） | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
 | 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |

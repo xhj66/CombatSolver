@@ -1,5 +1,17 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕收集者（`Collector`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.Collector`（计数 +1 后 `_initialSpawn`／`_ultUsed`
+  两条**不抽 RNG** 的短路、`NextInt(100)` 之后三路判断）与 `IsCollectorMinionDead`（存活火炬头 <
+  布点表 `torch` 槽数）、三个状态成员、三个静态数值成员、四个行动效果（`SPAWN` 与 `REVIVE` 的差别是
+  **后者查占用**）、`RequireType("ActsFromThePast.TorchHead")` 与 `BeforeDeathMirrors.RegisterIgnored`
+  全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 89,088 B；核心本轮未改）。
+- 一条读源码得到的结论：`REVIVE` **不是**收集者自身复活，而是往**空的** `torch` 槽位补召唤火炬头。
+- **未验证**：没有在游戏内打过「收集者」遭遇，三处 RNG 短路、两只召唤行动的占用差别、`BUFF` 与
+  `MEGA_DEBUFF` 的数值都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第二幕甲壳寄生虫（`ShelledParasite`）与本体「攻击结算之后」入口（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

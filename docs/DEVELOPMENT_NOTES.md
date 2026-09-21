@@ -23,6 +23,14 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第二幕收集者（`Collector`）（2026-09-21）
+
+- 第二幕再补一只：`Collector`。分支有三处关键短路——`_initialSpawn` 未清就直接 SPAWN、回合数 ≥ 3 且
+  大招没用过就直接 MEGA_DEBUFF（两条都**不抽 RNG**），之后才是 `NextInt(100)` 的三路判断；
+  三个标量（`_turnsTaken`／`_ultUsed`／`_initialSpawn`）进状态名单，`BUFF` 与 `MEGA_DEBUFF` 的数值走
+  静态数值成员。`SPAWN` 给每个 `torch` 槽位生成火炬头，`REVIVE` 只给**空的**槽位生成（读源码才看清
+  `REVIVE` 不是自身复活）；`BeforeDeath` 的「杀存活火炬头」是原版规则 ⇒ 登记为忽略。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.34。
 ## 未发布：第二幕甲壳寄生虫（`ShelledParasite`）与本体「攻击结算之后」入口（2026-09-21）
 
 - 为 `LIFE_SUCK`（按这次攻击的未被格挡伤害回血）补了本体入口

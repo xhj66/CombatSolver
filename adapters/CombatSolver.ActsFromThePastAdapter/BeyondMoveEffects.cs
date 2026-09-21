@@ -41,7 +41,11 @@ internal static class BeyondMoveEffects
         "BronzeAutomaton",
         "BronzeOrb",
         "ShelledParasite",
+        "Collector",
     ];
+
+    /// <summary>AFTP 的火炬头类型（收集者召唤用）。</summary>
+    private static Type _torchHeadType = null!;
 
     /// <summary>甲壳寄生虫 FELL 给的破甲层数（AFTP <c>FellFrailAmount</c>）。</summary>
     private static int _shelledParasiteFellFrail;
@@ -134,6 +138,7 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("StasisPower", "BeforeDeath", 1);
         _bronzeOrbType = AfpReflection.RequireType("ActsFromThePast.BronzeOrb");
         _shelledParasiteFellFrail = AfpReflection.RequireConst("ShelledParasite", "FellFrailAmount", 2);
+        _torchHeadType = AfpReflection.RequireType("ActsFromThePast.TorchHead");
     }
 
     public static void RegisterAll()
@@ -301,6 +306,150 @@ internal static class BeyondMoveEffects
             ShelledParasiteLifeSuck);
         // BeforeDeath 是空重写（只有基类调用），登记为忽略（名字带 Death，不登记会让整场给不出战损）。
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.ShelledParasite"));
+
+        // --- 收集者（Collector，第二幕精英／首领级） ---
+        // 开场 _turnsTaken=0／_ultUsed=false／_initialSpawn=true 与「火焰粒子循环」都在 AfterAddedToRoom
+        // （前三个已在根里播种；粒子循环是纯表现）。分支读写这三个标量，所以都进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers(
+            "Collector",
+            "_turnsTaken",
+            "_ultUsed",
+            "_initialSpawn");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers(
+            "Collector",
+            "BlockAmount",
+            "StrengthAmount",
+            "MegaDebuffAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Collector", "SPAWN", CollectorSpawn);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Collector", "BUFF", CollectorBuff);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Collector", "MEGA_DEBUFF", CollectorMegaDebuff);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Collector", "REVIVE", CollectorRevive);
+        // BeforeDeath：震屏 + 杀掉存活火炬头。后半是**原版规则**（主敌死亡时杀掉存活的 secondary 队友，
+        // 火炬头都带 MinionPower，核心已镜像）⇒ 登记为忽略。
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Collector"));
+    }
+
+    /// <summary>
+    /// Collector.Spawn：清掉 `_initialSpawn`，并给布点表里每个 `torch` 开头的槽位生成一只火炬头
+    /// （源码不做占用检查，这里照抄），每只挂 `MinionPower`（由 `minion: true` 做掉）。
+    /// </summary>
+    private static bool CollectorSpawn(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterBool(move.Owner, "_initialSpawn", false);
+        foreach (string slot in combat.EncounterSlots)
+        {
+            if (!slot.StartsWith("torch", StringComparison.Ordinal))
+                continue;
+            MonsterSpawnSupport.SpawnByType(
+                simulator,
+                combat,
+                move.Owner,
+                _torchHeadType,
+                slot,
+                maxHpOverride: null,
+                minion: true);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Collector.Buff：自己 <c>BlockAmount</c> 格挡（<c>Move</c>），再给每个活着的队友（含自己）
+    /// <c>StrengthAmount</c> 力量。
+    /// </summary>
+    private static bool CollectorBuff(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "BlockAmount"),
+            ValueProp.Move);
+        int strength = combat.GetMonsterStaticInt(move.Owner, "StrengthAmount");
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (simulator.State.GetCreature(teammate).IsAlive)
+                combat.Apply<StrengthPower>(teammate, strength, move.Owner);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Collector.MegaDebuff：给每个活着的目标 <c>MegaDebuffAmount</c> 层虚弱、易伤与破甲，然后把
+    /// `_ultUsed` 置位（分支靠它保证这招只出一次）。
+    /// </summary>
+    private static bool CollectorMegaDebuff(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        int amount = combat.GetMonsterStaticInt(move.Owner, "MegaDebuffAmount");
+        if (simulator.State.GetCreature(player).IsAlive)
+        {
+            combat.Apply<WeakPower>(player, amount, move.Owner);
+            combat.Apply<VulnerablePower>(player, amount, move.Owner);
+            combat.Apply<FrailPower>(player, amount, move.Owner);
+        }
+        combat.SetMonsterBool(move.Owner, "_ultUsed", true);
+        return true;
+    }
+
+    /// <summary>
+    /// Collector.Revive：给布点表里**空的**（没有被存活队友占用的）`torch` 槽位各生成一只火炬头——
+    /// 与 SPAWN 的区别就在这里：这一条要查占用。
+    /// </summary>
+    private static bool CollectorRevive(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        HashSet<string> occupied = [];
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (simulator.State.GetCreature(teammate).IsAlive && teammate.SlotName is { } occupiedSlot)
+                occupied.Add(occupiedSlot);
+        }
+        foreach (string slot in combat.EncounterSlots)
+        {
+            if (!slot.StartsWith("torch", StringComparison.Ordinal) || occupied.Contains(slot))
+                continue;
+            MonsterSpawnSupport.SpawnByType(
+                simulator,
+                combat,
+                move.Owner,
+                _torchHeadType,
+                slot,
+                maxHpOverride: null,
+                minion: true);
+            occupied.Add(slot);
+        }
+        return true;
     }
 
     /// <summary>ShelledParasite.Fell：攻击后给每个活着的目标 <c>FellFrailAmount</c> 层破甲。</summary>
