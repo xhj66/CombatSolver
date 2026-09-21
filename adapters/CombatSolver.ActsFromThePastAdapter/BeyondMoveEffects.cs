@@ -1,6 +1,7 @@
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models.Cards;
+using MegaCrit.Sts2.Core.Models.Powers;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Simulation;
 
@@ -19,22 +20,32 @@ internal static class BeyondMoveEffects
     [
         "Repulsor",
         "SnakeDagger",
+        "Spiker",
     ];
 
     /// <summary>Repulsor 的 Daze 张数（AFTP <c>DazeAmount</c>）。</summary>
     private static int _repulsorDazeAmount;
+
+    /// <summary>Spiker 每次加荆棘的层数（AFTP <c>BuffAmount</c>）。</summary>
+    private static int _spikerBuffAmount;
 
     public static void Verify()
     {
         foreach (string typeName in MonsterTypes)
             AfpReflection.RequireMonsterType(typeName);
         _repulsorDazeAmount = AfpReflection.RequireConst("Repulsor", "DazeAmount", 2);
+        _spikerBuffAmount = AfpReflection.RequireConst("Spiker", "BuffAmount", 2);
     }
 
     public static void RegisterAll()
     {
         // Repulsor.Daze：往**抽牌堆的随机位置**塞 DazeAmount 张 Dazed（意图是 StatusIntent，攻击部分没有）。
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Repulsor", "DAZE", RepulsorDaze);
+
+        // Spiker：开场的 StartingThorns 层荆棘发生在 AfterAddedToRoom（已在根里），这里只补 BuffThorns
+        // 那一步（自己记一次数 + 再挂 BuffAmount 层荆棘）；分支要读这个计数，所以它进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Spiker", "_thornsCount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Spiker", "BUFF_THORNS", SpikerBuffThorns);
 
         // SnakeDagger（ Reptomancer 召唤的蛇匕首）：
         // WoundStab 那次 9 点攻击已由通用攻击循环按意图结算，这里只补 1 张 Wound 进弃牌堆；
@@ -63,6 +74,30 @@ internal static class BeyondMoveEffects
             _repulsorDazeAmount,
             null,
             CardPilePosition.Random);
+        return true;
+    }
+
+    /// <summary>
+    /// Spiker.BuffThorns：先自己记一次数（分支靠它判「超过 5 次就不再加」），再挂 <c>BuffAmount</c>
+    /// 层荆棘。
+    /// </summary>
+    private static bool SpikerBuffThorns(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(
+            move.Owner,
+            "_thornsCount",
+            combat.GetMonsterInt(move.Owner, "_thornsCount") + 1);
+        combat.Apply<ThornsPower>(move.Owner, _spikerBuffAmount, move.Owner);
         return true;
     }
 

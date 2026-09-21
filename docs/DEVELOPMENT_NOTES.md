@@ -12,6 +12,19 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕尖刺者（`Spiker`）（2026-09-21）
+
+- 第三幕再补一只不需要新本体能力的：`Spiker`。开场的 `StartingThorns`（A9+ 7／否则 4）层荆棘由
+  `AfterAddedToRoom` 施加、根捕获时已在实例上，所以适配只需要两件事——`_thornsCount` 进状态名单
+  （根捕获播种、随 Fork、进指纹），以及 `BUFF_THORNS` 的行动效果（自己记一次数再挂 `BuffAmount`
+  ＝2 层原版 `ThornsPower`，常量用 `RequireConst` 钉死）。
+- 分支 `MOVE_BRANCH` 的关键是那条**短路**：`_thornsCount > 5` 时直接 `ATTACK` 且**一次 RNG 都不抽**，
+  其余情况才抽 `NextInt(100)`；抽多了会让后续回合的抽样整体错位。这只怪的阈值 5 是源码字面量，
+  没有可钉常量（只决定走向、不参与数值），已在解析器注释里记明。
+- 顺带纠正 §4.3 的初判：`OrbWalker` **不是**「只缺登记活」——它的 `AfterAddedToRoom` 挂的是 AFTP
+  自己的 `StrengthUpPower`，而那个 Power 重写的是**非 Late 的 `AfterSideTurnEnd`**，所以它和
+  `SnakePlant` 排在同一条本体缺口后面。
+
 ## 未发布：第三幕开篇（Repulsor／蛇匕首 `SnakeDagger`）（2026-09-21）
 
 - 范围推进到第三幕，先做两只**不需要新本体能力**的：`Repulsor`（`MOVE_BRANCH` 只读 rng 与行动历史，

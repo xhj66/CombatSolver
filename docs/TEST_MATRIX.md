@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕尖刺者（`Spiker`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondMoveEffects` 的 `RequireConst("Spiker","BuffAmount",2)`、
+  `RegisterMonsterStateMembers("Spiker", "_thornsCount")`、`SpikerBuffThorns`
+  （`SetMonsterInt("_thornsCount", +1)` 后 `Apply<ThornsPower>(owner, _spikerBuffAmount, owner)`）、
+  `BeyondBranchResolvers` 的 `Spiker.MOVE_BRANCH` 解析器（先 `if (_thornsCount > 5) return "ATTACK"`
+  ——**这条路径一次 RNG 都不抽**，再 `rng.NextInt(100) < 50 && !LastMove(log,"ATTACK")`）与纯读取声明
+  全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 67,072 B；本轮核心未改、未重新部署）。
+- 开场的 `StartingThorns` 层荆棘由源码的 `AfterAddedToRoom` 施加，根捕获时已在实机实例上，因此
+  **没有**适配代码；阈值 5 是源码字面量（`ThornsCount > 5`），无可钉常量，只影响分支走向。
+- **未验证**：没有在游戏内打过「尖刺者」遭遇，荆棘叠加与「超过 5 次后必打」的行动序列都**未实机验证**；
+  也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：第三幕开篇（Repulsor／蛇匕首 `SnakeDagger`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
