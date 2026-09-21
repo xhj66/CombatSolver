@@ -5,6 +5,8 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.MonsterMoves;
+using MegaCrit.Sts2.Core.MonsterMoves.MonsterMoveStateMachine;
 using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
@@ -47,7 +49,14 @@ internal static class BeyondMoveEffects
         "Nemesis",
         "Transient",
         "Lagavulin",
+        "WrithingMass",
     ];
+
+    /// <summary>AFTP 自己的 <c>ReactivePower</c>（蠕动肉块的「反应」）。</summary>
+    private static Type _reactivePowerType = null!;
+
+    /// <summary>蠕动肉块 ATTACK_DEBUFF 的虚弱／易伤层数（AFTP <c>NormalDebuffAmount</c>）。</summary>
+    private static int _writhingNormalDebuff;
 
     /// <summary>AFTP 自己的 <c>AsleepLagavulinPower</c>（睡着的拉瓦格林）与它的金属化。</summary>
     private static Type _asleepLagavulinType = null!;
@@ -195,6 +204,9 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "BeforeSideTurnStart", 4);
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "BeforeSideTurnEndVeryEarly", 3);
         _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "AfterSideTurnEnd", 3);
+        _reactivePowerType = AfpReflection.RequireType("ActsFromThePast.ReactivePower");
+        _ = AfpReflection.RequireOverride("ReactivePower", "AfterDamageReceived", 6);
+        _writhingNormalDebuff = AfpReflection.RequireConst("WrithingMass", "NormalDebuffAmount", 2);
     }
 
     public static void RegisterAll()
@@ -455,6 +467,127 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("AsleepLagavulinPower", AsleepLagavulinTurnStart);
         BeforeSideTurnEndMirrors.RegisterVeryEarly(_asleepLagavulinType, AsleepLagavulinTurnEndVeryEarly);
         ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("AsleepLagavulinPower", AsleepLagavulinTurnEnd);
+
+        // --- 蠕动肉块（WrithingMass，第三幕） ---
+        // 开场挂 ReactivePower 1 与 MalleablePower 3（都在 AfterAddedToRoom，已在根里；后者镜像见 §2.29）。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("WrithingMass", "_firstMove", "_usedMegaDebuff");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("WrithingMass", "ATTACK_BLOCK", WrithingAttackBlock);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("WrithingMass", "ATTACK_DEBUFF", WrithingAttackDebuff);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("WrithingMass", "MEGA_DEBUFF", WrithingMegaDebuff);
+        // ReactivePower.AfterDamageReceived：挨打后**随机改掉自己下一个行动**（用共享的 MonsterAi 流，
+        // 候选来自它自己的行动表，排除当前行动与 MOVE_BRANCH，用过 MEGA_DEBUFF 就排除它）。
+        AfterDamageReceivedMirrors.Register(_reactivePowerType, ReactivePowerDamageReceived);
+    }
+
+    /// <summary>WrithingMass.AttackBlock：攻击之外给自己 <c>AttackBlockBlock</c> 点格挡（<c>Move</c>）。</summary>
+    private static bool WrithingAttackBlock(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "AttackBlockBlock"),
+            ValueProp.Move);
+        return true;
+    }
+
+    /// <summary>WrithingMass.AttackDebuff：攻击之后给每个活着的目标 2 层虚弱与 2 层易伤（`NormalDebuffAmount`）。</summary>
+    private static bool WrithingAttackDebuff(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.Apply<WeakPower>(player, _writhingNormalDebuff, move.Owner);
+        combat.Apply<VulnerablePower>(player, _writhingNormalDebuff, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// WrithingMass.MegaDebuff：把 `_usedMegaDebuff` 置位（分支与 ReactivePower 都读它）。
+    /// </summary>
+    /// <remarks>
+    /// 源码这一招的另一半是 `CardPileCmd.AddCurseToDeck&lt;Parasite&gt;(玩家)`——**牌组级**（跨战斗）的改动，
+    /// 不在战斗求解器的状态模型里，也不影响本场战斗的任何数值。这一条按「战斗内无效果」登记，
+    /// 牌组后果记在 docs/AFTP_ACT4HEART_STATUS.md §4.4 的已知边界里，不假装建模。
+    /// </remarks>
+    private static bool WrithingMegaDebuff(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterBool(move.Owner, "_usedMegaDebuff", true);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>ReactivePower.AfterDamageReceived</c>：持有者挨到未被格挡的 <c>Move</c> 伤害（非
+    /// <c>Unpowered</c>）且还活着时，从自己的行动表里抽一个候选**改掉下一个行动**。
+    /// </summary>
+    /// <remarks>
+    /// 候选＝行动表里所有 <c>IsMove</c> 的状态，排除**当前**行动与 `MOVE_BRANCH`；用过 `MEGA_DEBUFF`
+    /// 就把它也排除。抽样走的是 **`RunRng.MonsterAi`（共享的怪物 AI 流）**，不是这只怪的私有流——
+    /// 这一点必须照抄，否则整场抽样错位。
+    /// </remarks>
+    private static void ReactivePowerDamageReceived(
+        AbstractModel model,
+        AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner
+            || context.Props.HasFlag(ValueProp.Unpowered)
+            || !context.Props.HasFlag(ValueProp.Move)
+            || context.Result.UnblockedDamage <= 0
+            || context.Simulator.State.GetCreature(power.Owner).CurrentHp <= 0)
+        {
+            return;
+        }
+        if (context.CombatState is not SimulatedCombatState combat
+            || power.Owner.Monster is not { } monster)
+        {
+            throw new PredictionUnsupportedException("反应缺少可写的预测状态。");
+        }
+        string currentMoveId = combat.CurrentMonsterMove(power.Owner).Move.Id;
+        List<MoveState> candidates = [];
+        foreach (MonsterState state in monster.MoveStateMachine.States.Values)
+        {
+            if (state is not MoveState move
+                || string.Equals(move.Id, currentMoveId, StringComparison.Ordinal)
+                || string.Equals(move.Id, "MOVE_BRANCH", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (string.Equals(move.Id, "MEGA_DEBUFF", StringComparison.Ordinal)
+                && combat.GetMonsterBool(power.Owner, "_usedMegaDebuff"))
+            {
+                continue;
+            }
+            candidates.Add(move);
+        }
+        if (candidates.Count == 0)
+            return;
+        MoveState next = candidates[context.Simulator.Rng.MonsterAi.NextInt(candidates.Count)];
+        combat.ForceMonsterMove(power.Owner, next.Id);
     }
 
     /// <summary>Lagavulin.Sleep：睡眠计数 +1（台词与音效不在适配范围）。</summary>

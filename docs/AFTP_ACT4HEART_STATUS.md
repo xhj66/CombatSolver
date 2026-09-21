@@ -996,6 +996,22 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 补格挡与四处阶段顺序都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.40 第三幕：蠕动肉块（`WrithingMass`）
+
+| 部位 | 源码（`ActsFromThePast.WrithingMass`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 挂 `ReactivePower` 1 与 `MalleablePower` 3 | 不需要代码（已在根里）；后者的镜像见 §2.29 |
+| `MOVE_BRANCH` | `_firstMove` 时置假并按 `NextInt(100)` 三选一（`< 33` MULTI_HIT／`< 66` ATTACK_BLOCK／否则 ATTACK_DEBUFF）；否则抽 `NextInt(100)`，落进 10／20／40／70 四个档位，每档先试自己的候选、失败才**再抽**（`10 + NextInt(90)`／`NextFloat(1)`／`20 + NextInt(80)`／`40 + NextInt(60)`／`NextInt(70)`）继续判 | `BeyondBranchResolvers.WrithingMass`（每处抽样与短路照抄）；两个标量进状态名单 |
+| `BIG_HIT`／`MULTI_HIT` | `SingleAttackIntent(BigHitDamage)`／`MultiAttackIntent(MultiHitDamage, 3)` | 纯攻击，已在常量表 |
+| `ATTACK_BLOCK` | 攻击 ＋ 自己 `AttackBlockBlock` 点格挡（`Move`） | `WrithingAttackBlock`（数值走静态数值成员） |
+| `ATTACK_DEBUFF` | 攻击 ＋ 每个活着的目标 2 层虚弱与 2 层易伤（`NormalDebuffAmount`） | `WrithingAttackDebuff`（层数 `RequireConst` 钉死 2） |
+| `MEGA_DEBUFF` | 置 `_usedMegaDebuff` ＋ **`CardPileCmd.AddCurseToDeck<Parasite>(玩家)`** | 战斗内只置位；牌组那半是**跨战斗的牌组改动**，不在战斗求解器的状态模型里，也不影响本场数值——按「战斗内无效果」登记，边界记在 §4.4，不假装建模 |
+| `ReactivePower.AfterDamageReceived` | 持有者挨到未被格挡的 `Move` 伤害（非 `Unpowered`）且还活着 ⇒ 从自己行动表里抽一个候选**改掉下一个行动**（排除当前行动与 `MOVE_BRANCH`；用过 `MEGA_DEBUFF` 就排除它），抽样走 **`RunRng.MonsterAi`** | `ReactivePowerDamageReceived`：候选＝行动表里所有 `IsMove` 状态；当前行动取**模拟状态**（`combat.CurrentMonsterMove`）；抽样用 `simulator.Rng.MonsterAi`（共享流，逐字照抄），落定用 `combat.ForceMonsterMove` |
+
+**未验证**：没有在游戏内打过「蠕动肉块」遭遇，分支五档抽样、`ReactivePower` 改行动与它消耗的共享 AI 流、
+`MEGA_DEBUFF` 只置位（牌组改动未建模）都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1337,7 +1353,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | ~~`Byrd`~~（已适配 §2.36） | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | ~~`Transient`~~（已适配 §2.38；§4.4 原先列的「缺按 Type 施加临时力量的入口」是**误判**——`ApplyTemporaryStrengthLoss(Type, …)` 早已存在） |
 | 三 | ~~`Nemesis`~~（已适配 §2.37） | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
-| 三 | `WrithingMass` | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
+| 三 | ~~`WrithingMass`~~（已适配 §2.40；`MEGA_DEBUFF` 的牌组塞 Paraste 属跨战斗效果，未建模，见 §2.40） | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
 | 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |
 | 三 | `AwakenedOne` | 两阶段 + 重生（`REBIRTH`）+ `ShouldDisappearFromDoom` + `BeforeDeath` |
 | 三 | `TimeEater` | `TimeWarpPower`（回合计数、内部 DynamicVar + 卡牌计数）+ `HASTE` + `AfterAddedToRoom` |

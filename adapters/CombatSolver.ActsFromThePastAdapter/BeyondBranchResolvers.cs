@@ -54,6 +54,7 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FLYING_BRANCH", ByrdFlying);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Nemesis", "MOVE_BRANCH", Nemesis);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Lagavulin", "MAIN_BRANCH", Lagavulin);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("WrithingMass", "MOVE_BRANCH", WrithingMass);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -61,7 +62,7 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis", "Lagavulin"];
+         "Byrd", "Nemesis", "Lagavulin", "WrithingMass"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -548,6 +549,73 @@ internal static class BeyondBranchResolvers
         if (combat.GetMonsterInt(monster.Creature, "_debuffTurnCount") >= 2)
             return "DEBUFF";
         return LastTwoMoves(log, "ATTACK") ? "DEBUFF" : "ATTACK";
+    }
+
+    /// <summary>
+    /// WrithingMass.SelectNextMove：`_firstMove` 时置假并按 `NextInt(100)` 三选一（&lt; 33 多段／&lt; 66
+    /// 攻防／否则减益）；否则抽 `NextInt(100)`，落进 10／20／40／70 四个档位，每档先试自己的候选，
+    /// 失败才**再抽**（`10 + NextInt(90)`／`NextFloat(1)`／`20 + NextInt(80)`／`40 + NextInt(60)`／
+    /// `NextInt(70)`）继续判——每一处抽样与短路都照抄源码。
+    /// </summary>
+    /// <remarks>它写 `_firstMove`／`_usedMegaDebuff`，**不在**纯读取名单里。</remarks>
+    private static string WrithingMass(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = simulator;
+        if (combat.GetMonsterBool(monster.Creature, "_firstMove"))
+        {
+            combat.SetMonsterBool(monster.Creature, "_firstMove", false);
+            int first = rng.NextInt(100);
+            return first < 33 ? "MULTI_HIT" : first < 66 ? "ATTACK_BLOCK" : "ATTACK_DEBUFF";
+        }
+        int num = rng.NextInt(100);
+        if (num < 10)
+        {
+            if (!LastMove(log, "BIG_HIT"))
+                return "BIG_HIT";
+            num = 10 + rng.NextInt(90);
+        }
+        if (num < 20)
+        {
+            if (!combat.GetMonsterBool(monster.Creature, "_usedMegaDebuff") && !LastMove(log, "MEGA_DEBUFF"))
+            {
+                combat.SetMonsterBool(monster.Creature, "_usedMegaDebuff", true);
+                return "MEGA_DEBUFF";
+            }
+            if (rng.NextFloat(1f) < 0.1f && !LastMove(log, "BIG_HIT"))
+                return "BIG_HIT";
+            num = 20 + rng.NextInt(80);
+        }
+        if (num < 40)
+        {
+            if (!LastMove(log, "ATTACK_DEBUFF"))
+                return "ATTACK_DEBUFF";
+            if (rng.NextFloat(1f) < 0.4f && !LastMove(log, "BIG_HIT"))
+                return "BIG_HIT";
+            num = 40 + rng.NextInt(60);
+        }
+        if (num < 70)
+        {
+            if (!LastMove(log, "MULTI_HIT"))
+                return "MULTI_HIT";
+            if (rng.NextFloat(1f) < 0.3f)
+                return "ATTACK_BLOCK";
+            return LastMove(log, "ATTACK_DEBUFF") ? "BIG_HIT" : "ATTACK_DEBUFF";
+        }
+        if (!LastMove(log, "ATTACK_BLOCK"))
+            return "ATTACK_BLOCK";
+        num = rng.NextInt(70);
+        if (num < 10 && !LastMove(log, "BIG_HIT"))
+            return "BIG_HIT";
+        if (num < 40 && !LastMove(log, "ATTACK_DEBUFF"))
+            return "ATTACK_DEBUFF";
+        return "MULTI_HIT";
     }
 
     /// <summary>

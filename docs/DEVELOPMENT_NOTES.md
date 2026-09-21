@@ -23,6 +23,16 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第三幕蠕动肉块（`WrithingMass`）（2026-09-21）
+
+- 分支 `MOVE_BRANCH` 的五档抽样（`_firstMove` 三选一；之后 `NextInt(100)` 落 10／20／40／70 四档，
+  每档先试候选、失败才再抽一个更窄区间的数）逐条照抄；`ATTACK_BLOCK` 给自己格挡、`ATTACK_DEBUFF` 给玩家
+  2 层虚弱与易伤、`MEGA_DEBUFF` 只置 `_usedMegaDebuff`（它的另一半是往**牌组**塞 Parasite，跨战斗效果，
+  战斗状态模型里没有对应物，按 §2.40 的边界记明，不假装建模）。
+- `ReactivePower.AfterDamageReceived`：挨到未被格挡的 Move 伤害后从自己的行动表里**随机改掉下一个行动**
+  （排除当前行动、`MOVE_BRANCH`、用过的 MEGA_DEBUFF），抽样走**共享的 `RunRng.MonsterAi` 流**（必须照抄，
+  否则整场抽样错位），落定用 `combat.ForceMonsterMove`；当前行动从模拟状态读。开场那两个 Power 在
+  `AfterAddedToRoom`（已在根里）。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.40。
 ## 未发布：第一幕精英拉瓦格林（`Lagavulin`）与本体 VeryEarly 回合末入口（2026-09-21）
 
 - 本体补了 `BeforeSideTurnEndMirrors.RegisterVeryEarly(模型类型名, handler)`（与 `RegisterEarly` 各自 Seal、
