@@ -98,10 +98,11 @@
 `Cultist`、`Sentry`、`LouseRed`、`LouseGreen`、`GremlinFat`、`GremlinMad`、`GremlinSneaky`、
 `AcidSlimeSmall`、`SpikeSlimeSmall` 等没有 `ConditionalBranchState`，不会硬失败。
 
-它们的非攻击行动效果已由适配 Mod 登记（`ExordiumMoveEffects.RegisterAll`，共 19 个
-(怪物, 行动) 组合，覆盖 13 个怪物类型），例如 `Cultist.INCANTATION`、`Sentry.BOLT`、
-`LouseRed.GROW`、`LouseGreen.SPIT_WEB`、`GremlinFat.SMASH`、`AcidSlimeSmall.LICK`。
-仍未登记的行动保持「预览可能不完整」的软缺口，不静默当成空操作。
+它们的非攻击行动效果已由适配 Mod 登记（`ExordiumMoveEffects.RegisterAll`，覆盖 13 个怪物类型），
+例如 `Cultist.INCANTATION`、`Sentry.BOLT`、`LouseRed.GROW`、`LouseGreen.SPIT_WEB`、`GremlinFat.SMASH`、
+`AcidSlimeSmall.LICK`；`GremlinMad`／`GremlinSneaky` 逐行核对后确认**零登记即完整**（只有单条攻击 +
+入场时的原版 Power + 死亡音效，见 §4.5）。仍未登记的行动保持「预览可能不完整」的软缺口，
+不静默当成空操作；**截至 §4.5 的收口核对，62 只里已经没有这类缺口**。
 
 ### 2.4 短名键控的碰撞核对
 
@@ -1459,16 +1460,16 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
-| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
+| 0 | 只有常量攻击 + 无分支 | ✔ SpikeSlimeSmall（零登记即完整，见 §4.5）、✔ GremlinSneaky（同） | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
 | 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24）、✔ Reptomancer（§2.25）、✔ Exploder（§2.26）、✔ Donu（§2.27）、✔ Deca（§2.28） |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
-| 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | ✔ BronzeAutomaton（§2.32）、✔ Collector（§2.34）、✔ GremlinLeader（§2.35）、✔ Byrd（§2.36）；**复活同一个个体**是另一条路：✔ Darkling（§2.46，`RegisterRevivePower`）、✔ AwakenedOne（§2.47，`RegisterRespawnPower`） | ✔ Reptomancer（§2.25，召唤蛇匕首） |
-| 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
-| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化）、✔ LifeLinkPower（§2.46，走复活阶段；它与原版 `ReattachPower` 逐行同形，内部数据不需要镜像）、✔ UnawakenedPower／✔ CuriosityPower／✔ RegenEnemyPower（§2.47，重生阶段 + `AfterCardPlayed` + 常规回合末） | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | ReactivePower、ShiftingPower、StrengthUpPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower（都已在 §2.37–§2.41 各自批次里落地，本列只是早期侦察的残余） |
+| 2 | 第三方怪物生成（召唤／分裂／复活） | ✔ AcidSlimeLarge／✔ SpikeSlimeLarge／✔ SlimeBoss（SPLIT，§2.11） | ✔ BronzeAutomaton（§2.32）、✔ Collector（§2.34）、✔ GremlinLeader（§2.35）、✔ Byrd（§2.36）；**复活同一个个体**是另一条路：✔ Darkling（§2.46，`RegisterRevivePower`） | ✔ Reptomancer（§2.25，召唤蛇匕首）；✔ AwakenedOne（§2.47，`RegisterRespawnPower` 的重生） |
+| 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | ✔ Centurion（§2.13）、✔ GremlinLeader（§2.35） | ✔ WrithingMass（§2.40，`MonsterRngSupport`） |
+| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化）、✔ LifeLinkPower（§2.46，走复活阶段；它与原版 `ReattachPower` 逐行同形，内部数据不需要镜像）、✔ UnawakenedPower／✔ CuriosityPower／✔ RegenEnemyPower（§2.47，重生阶段 + `AfterCardPlayed` + 常规回合末） | ✔ StasisPower（§2.31／§2.32）、✔ PlatedArmorPower（§2.28）、✔ MalleablePower（§2.29／§2.30）、✔ FlightPower（§2.36）、✔ HexOriginalPower（§2.42）；AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17） | ✔ ReactivePower（§2.40）、✔ ShiftingPower（§2.38）、✔ StrengthUpPower（§2.21）、✔ TimeWarpPower／✔ DrawReductionPower（§2.41）、✔ ConstrictedPower（§2.22）、✔ FadingPower（§2.38） |
 | 5 | 强制改写当前行动 / 眩晕 | ✔ Guardian（`ForceMonsterMove`，§2.44）、✔ Lagavulin（`ForceStunnedMove`，§2.39） | ✔ ShelledParasite（§2.33） | ✔ AwakenedOne（§2.47，`REBIRTH` 走 `RegisterRespawnPower` 的强制行动） |
-| 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
+| 6 | 缺失的回合阶段 | ✔ Hexaghost（§2.42：它**没有** `AfterSideTurnEnd` 重写，旧缺口是误判）、✔ JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — | — |
 | 7 | 病症／可打出性镜像 | ✔ SlaverRed（`EntangledPower` + `EntangledOriginal` 病症，§2.45：新增 `RegisterCardAfflictionSource`） | — | — |
-| 8 | 预测期卡牌操作 | Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张） | — | — |
+| 8 | 预测期卡牌操作 | ✔ Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张，§2.42；表达差别已记明） | — | — |
 | 9 | 非战斗内容（事件／遗物同名类，**不是怪物**） | — | — | TorchHead 之外的条目见 `_build/_aftp_model_hooks.txt` |
 
 **已经补上的核心能力**：动态攻击值登记（`RegisterMonsterAttackValues`，见 §2.17；往昔之书是第一家，
@@ -1481,15 +1482,46 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 `PlatedArmorPower` 与 `Byrd` 的 `FlightPower`，见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13）、
 **第三方 Power 驱动的卡牌病症登记**（`RegisterCardAfflictionSource`，把核心为原版 `TangledPower`／
 `HexPower`／`RingingPower` 写死的那套「Power 在 ⇒ 挂病症 / 消失 ⇒ 摘掉 / 新入场的牌同样处理」规范化
-对第三方开放；解锁 `SlaverRed` 的 `EntangledPower`，见 §2.45）。
+对第三方开放；解锁 `SlaverRed` 的 `EntangledPower`，见 §2.45）、**第三方「死亡后保留尸体」两型登记**
+（`RegisterRevivePower` 的 Reattach 型与 `RegisterRespawnPower` 的 Adaptable 型；解锁 `Darkling` 与
+`AwakenedOne`，见 §2.46／§2.47，其中 `ShouldOwnerDeathTriggerFatal` 与 `ShouldStopCombatFromEnding`
+改由模拟状态回答）、**第三方怪物生成（`MonsterSpawnSupport.SpawnByType`，组 2）**、
+**私有 `MonsterModel.Rng` 镜像（`MonsterRngSupport`，组 3）**、
+**第三方模型的 `BeforeSideTurnEndVeryEarly`／常规回合末／攻击前 / 攻击结算之后等入口**（§2.13 表内）。
 
-**求解器本体仍要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
-② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ 玩家侧非 Power 的回合开始特化与遗物触发（**非 Late 的 `AfterSideTurnEnd`、第三方
-`BeforeSideTurnStart` 都已在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7，**已在 §2.45 补上**）；
-⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，**已全部落地**：`ForceMonsterMove`／
-`ForceStunnedMove` 与 `RegisterRespawnPower` 的强制行动）。
-每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
-[第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。
+**求解器本体仍要补的能力**：按 §4.1 那张工作面表逐组核对，**组 0–8 都已落地**（每组的 ✔ 指向批次）。
+仍然封闭的与本轮目标无关，列在 [第三方适配](THIRD_PARTY_ADAPTERS.md) §6（例如玩家侧非 Power 模型的
+回合阶段、第三方卡牌私有计数进指纹等）；每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，
+并在 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。
+
+### 4.5 收口核对（2026-09-21：62 只全部有结论）
+
+反编译源码里有 **62 个 `CustomMonsterModel`**（第一幕 25、第二幕 20、第三幕 17，用
+`^\s*public (sealed )?class (\w+) : CustomMonsterModel` 逐个数出）。逐只核对的结果分两类：
+
+**① 有逐项登记（57 只）**：行动分支／可变标量／行动效果／常量构造攻击／所需 Power 五项按 §2.x 各批次
+登记，每批都过 Release 构建 + 已部署产物反编译核对（证据逐批记在 [测试清单](TEST_MATRIX.md)）。
+
+**② 逐行复核后确认「零登记即完整」（5 只）**——它们的全部玩法内容要么是纯攻击，要么发生在根捕获之前，
+要么由别的批次已经覆盖：
+
+| 怪物 | 源码里有什么 | 为什么不需要登记 |
+| --- | --- | --- |
+| `GremlinMad` | 单行动 `SCRATCH`（`SingleAttackIntent(ScratchDamage)`，自环）；`AfterAddedToRoom` 挂**原版** `AngryPower`（层数按 A9 冻结在根里）＋订阅「首领死亡」事件；死亡音效 | 攻击已在 `ExordiumStableAttacks` 登记；Power 是原版类型、核心已镜像；「随首领死亡逃跑」由 `GremlinLeader` 的 `BeforeDeath` 镜像（§2.35）统一表达 |
+| `GremlinSneaky` | 单行动 `PUNCTURE`（同上）；同一个首领死亡订阅；死亡音效 | 同上（攻击已在稳定攻击名单里） |
+| `SpikeSlimeSmall` | 单行动 `TACKLE`；`AfterAddedToRoom` 只订阅死亡音效 | 纯攻击；分裂后的行为由父体的 `SPLIT`（§2.11）与本体的拆血规则覆盖 |
+| `Pointy` | 单行动 `STAB`（`MultiAttackIntent(AttackDamage, 2)`）；`AfterAddedToRoom` 订阅**熊**的死亡只为一句话 | 纯攻击；那句对白是纯表现 |
+| `TorchHead` | 单行动 `TACKLE`（`SingleAttackIntent(7)`） | 纯攻击；§2.18 已记为「零登记即完整」 |
+
+**③ 能力侧的收口**：AFTP 程序集里有 25 个 `CustomPowerModel`；其中 **24 个**在适配层里有登记或引用
+（原版类型的 `AngryPower`／`SporeCloudPower`／`PainfulStabsPower` 由核心既有镜像覆盖，其余是 §2.x 各批
+登记的第三方 Power）。唯一一个没被引用的 `ExplosivePower` 是**死代码**：在整份反编译源码里只出现在
+它自己的类声明处，没有任何地方 `Apply`／读取它（`Exploder` 的倒计时用的是怪物自己的 `_turnCount`，
+§2.26 已按那个建模）——所以它没有需要适配的语义。
+
+**验收口径**：`§4.1` 那五项（分支 / 状态 / 行动效果 / 力量镜像 / 常量攻击）逐只核对完毕，而不是
+「求解器没报错」。**仍未做**的是实机验证与差分夹具（AFTP 程序集无法在无头测试进程里加载），
+以及结构门禁（本机没有 PowerShell 7）；这两项在每批的 §2.x／[测试清单](TEST_MATRIX.md) 里都逐条记明。
 
 #### ⚠️ 未适配的怪物不等于「被拒绝」
 
