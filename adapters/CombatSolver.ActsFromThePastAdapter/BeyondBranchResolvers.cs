@@ -62,6 +62,14 @@ internal static class BeyondBranchResolvers
             "OFFENSIVE_BRANCH",
             Guardian);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Darkling", "MOVE_BRANCH", Darkling);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "AwakenedOne",
+            "PHASE1_BRANCH",
+            AwakenedOnePhase1);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "AwakenedOne",
+            "PHASE2_BRANCH",
+            AwakenedOnePhase2);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -69,7 +77,8 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost", "Guardian", "Darkling"];
+         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost", "Guardian", "Darkling",
+         "AwakenedOne"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -89,6 +98,8 @@ internal static class BeyondBranchResolvers
         ("Byrd", "FLYING_BRANCH"),
         ("Lagavulin", "MAIN_BRANCH"),
         ("Guardian", "OFFENSIVE_BRANCH"),
+        ("AwakenedOne", "PHASE1_BRANCH"),  // SelectPhase1Move：只读行动历史 + RNG
+        ("AwakenedOne", "PHASE2_BRANCH"),  // SelectPhase2Move：同上
     ];
 
     /// <summary>
@@ -701,6 +712,52 @@ internal static class BeyondBranchResolvers
             6 => "INFERNO",
             _ => "SEAR",
         };
+    }
+
+    /// <summary>
+    /// AwakenedOne.SelectPhase1Move（分支 <c>PHASE1_BRANCH</c>）：抽一次 <c>NextInt(100)</c>——&lt;25 且上一步
+    /// 不是 SOUL_STRIKE 就 SOUL_STRIKE（否则 SLASH）；否则「最近两次不都是 SLASH」就 SLASH，不然 SOUL_STRIKE。
+    /// </summary>
+    /// <remarks>只读行动历史与传入的 <c>rng</c>，不写状态，**已声明为纯读取**。</remarks>
+    private static string AwakenedOnePhase1(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = combat;
+        _ = simulator;
+        int roll = rng.NextInt(100);
+        if (roll < 25)
+            return LastMove(log, "SOUL_STRIKE") ? "SLASH" : "SOUL_STRIKE";
+        return LastTwoMoves(log, "SLASH") ? "SOUL_STRIKE" : "SLASH";
+    }
+
+    /// <summary>
+    /// AwakenedOne.SelectPhase2Move（分支 <c>PHASE2_BRANCH</c>）：抽一次 <c>NextInt(100)</c>——&lt;50 且最近两次
+    /// 不都是 SLUDGE 就 SLUDGE（否则 TACKLE）；否则「最近两次不都是 TACKLE」就 TACKLE，不然 SLUDGE。
+    /// </summary>
+    /// <remarks>只读行动历史与传入的 <c>rng</c>，不写状态，**已声明为纯读取**。</remarks>
+    private static string AwakenedOnePhase2(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = combat;
+        _ = simulator;
+        int roll = rng.NextInt(100);
+        if (roll < 50)
+            return LastTwoMoves(log, "SLUDGE") ? "TACKLE" : "SLUDGE";
+        return LastTwoMoves(log, "TACKLE") ? "SLUDGE" : "TACKLE";
     }
 
     /// <summary>

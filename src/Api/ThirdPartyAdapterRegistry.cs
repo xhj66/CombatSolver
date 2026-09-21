@@ -386,6 +386,80 @@ internal static class ThirdPartyAdapterRegistry
         => RevivePowerTable.ContainsKey(powerTypeName);
 
     /// <summary>
+    /// 第三方重生 Power 在「重生回合」要做的全部事情（换最大生命、治疗、摘掉哪些 Power 等）。
+    /// </summary>
+    /// <remarks>
+    /// 处理函数只读写**模拟状态**：它跑在死亡阶段里，此时该个体已经 0 血、<c>_deathPhases</c> 是
+    /// <c>Reviving</c>；返回后核心把死亡阶段清成 <c>None</c>（也就是「活过来了」），所以处理函数
+    /// **不需要**自己碰死亡阶段。
+    /// </remarks>
+    public delegate void RespawnResolveHandler(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power);
+
+    /// <summary>
+    /// 一条「第三方重生 Power」的登记项：持有者死亡时保留尸体，<paramref name="RespawnMoveId"/> 那一回合
+    /// 由 <paramref name="Resolve"/> 完成重生；<paramref name="PendingHpMemberName"/> 是「复活后会以多少
+    /// 生命回来」的怪物静态数值成员名（终局口径要用）。
+    /// </summary>
+    public readonly record struct RespawnPowerRegistration(
+        string PowerTypeName,
+        string RespawnMoveId,
+        string PendingHpMemberName,
+        RespawnResolveHandler Resolve);
+
+    private static readonly Dictionary<string, RespawnPowerRegistration> RespawnPowerTable = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 登记第三方 Power 的「死亡后重生到新阶段」语义（原版 <c>AdaptablePower</c>／测试体那一型的
+    /// 第三方对应物；往昔之章的觉醒者是「一阶段死亡 ⇒ REBIRTH 换成 300／320 血复活」）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="RegisterRevivePower"/> 的区别是**形状**：那条是「同一组里只要还有人活着就治疗
+    /// <c>Amount</c> 点回来」（Reattach 型，需要死亡回合 + 复活回合两个行动），这条是「死亡后必走
+    /// 一个指定行动，那个行动里自己换血复活」（Adaptable 型，一个行动就够，没有分组判据）。
+    ///
+    /// <para>
+    /// 登记后核心会替这个 Power 回答四件事（都**不再**调模型自己的重写，因为那几个重写读的是实机状态）：
+    /// ① <c>ShouldRemoveAfterDeath</c> ⇒ 保留尸体；② 死亡时进入复活阶段并强制走
+    /// <paramref name="RespawnMoveId"/>；③ 那个行动执行时调 <paramref name="Resolve"/> 并清掉死亡阶段；
+    /// ④ 复活中的尸体按 <paramref name="PendingHpMemberName"/> 的数值计入终局口径（战斗不能算赢）。
+    /// 另外**只要这个 Power 还在（层数大于 0），战斗就不能结束**（<c>ShouldStopCombatFromEnding</c>
+    /// 的等价物）——所以重生回合里必须把<strong>这个 Power 自己</strong>摘掉，否则战斗永远结束不了。
+    /// </para>
+    ///
+    /// <para>
+    /// 登记方要自己核对：Power 的 <c>ShouldPowerBeRemovedAfterOwnerDeath()</c> 必须返回 <c>false</c>、
+    /// <c>ShouldOwnerDeathTriggerFatal()</c> 必须是「这一阶段不算真死」（核心替你回答为 <c>false</c>），
+    /// 以及行动 Id 与源码一致。
+    /// </para>
+    /// </remarks>
+    public static void RegisterRespawnPower(
+        string powerTypeName,
+        string respawnMoveId,
+        string pendingHpMemberName,
+        RespawnResolveHandler resolve)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(powerTypeName);
+        ArgumentException.ThrowIfNullOrEmpty(respawnMoveId);
+        ArgumentException.ThrowIfNullOrEmpty(pendingHpMemberName);
+        ArgumentNullException.ThrowIfNull(resolve);
+        if (RespawnPowerTable.ContainsKey(powerTypeName))
+            throw new InvalidOperationException($"{powerTypeName} 已经登记过重生语义了。");
+        RespawnPowerTable.Add(
+            powerTypeName,
+            new RespawnPowerRegistration(powerTypeName, respawnMoveId, pendingHpMemberName, resolve));
+    }
+
+    public static bool TryGetRespawnPower(string powerTypeName, out RespawnPowerRegistration registration)
+        => RespawnPowerTable.TryGetValue(powerTypeName, out registration);
+
+    /// <summary>这个 Power 类型名是否登记过「死亡后重生到新阶段」。</summary>
+    public static bool IsRespawnPowerName(string powerTypeName)
+        => RespawnPowerTable.ContainsKey(powerTypeName);
+
+    /// <summary>
     /// 登记第三方**非 Power 模型**（怪物这类）的常规（非 Late）<c>AfterSideTurnEnd</c>：敌人回合末按类型名派发。
     /// </summary>
     /// <remarks>

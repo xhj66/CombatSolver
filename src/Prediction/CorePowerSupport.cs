@@ -415,16 +415,21 @@ internal static class CorePowerSupport
     }
 
     /// <summary>
-    /// 「这个 Power 的持有者死亡算不算真死」。第三方复活 Power（原版 <c>ReattachPower</c> 那一类）的
-    /// 重写读的是 <c>Owner.CombatState</c>，在预测里会读到实机值，所以这类类型改由模拟状态判。
+    /// 「这个 Power 的持有者死亡算不算真死」。第三方复活／重生 Power 的重写读的是实机
+    /// （<c>Owner.CombatState</c> 或 <c>owner.Monster</c> 的私有字段），在预测里会读到陈旧值，
+    /// 所以这类类型改由模拟状态判：复活型问「组里其他人是不是都死了」，重生型恒为假（那只是换阶段）。
     /// </summary>
-    private static bool OwnerDeathTriggersFatal(
+    internal static bool OwnerDeathTriggersFatal(
         CombatPredictionSimulator simulator,
         SimulatedCombatState combat,
         PowerModel power)
-        => ThirdPartyAdapterRegistry.IsRevivePowerName(power.GetType().Name)
+    {
+        if (ThirdPartyAdapterRegistry.IsRespawnPowerName(power.GetType().Name))
+            return false;
+        return ThirdPartyAdapterRegistry.IsRevivePowerName(power.GetType().Name)
             ? combat.AreAllRegisteredReviveSiblingsDead(simulator, power.Owner, power.GetType().Name)
             : power.ShouldOwnerDeathTriggerFatal();
+    }
 
     private static bool WasFatalKill(
         bool targetDeathTriggersFatal,

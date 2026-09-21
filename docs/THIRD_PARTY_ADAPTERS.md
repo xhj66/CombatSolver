@@ -513,6 +513,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterStolenCardPower(Power 类型名, hasStolenCard)` | 第三方**偷牌** Power：终局的「未追回战利品」与「持有者死亡时核销」原先只认原版 `SwipePower`（偷牌）与 `ThieveryPower`／`HeistPower`（偷金币）。不登记的话，被偷的牌会一直算作丢失（界面与排序都会错）；`hasStolenCard(simulator, power)` 由登记方回答「这个实例现在扣着牌吗」 |
 | `RegisterCardAfflictionSource(Power 类型名, 病症 Type, 牌型?)` | 第三方 Power 的「在玩家身上时给某类牌挂**病症**、消失时摘掉、之后进入战斗的牌同样处理」，对应核心为原版 `TangledPower`／`HexPower`／`RingingPower` 写死的那套规范化。挂的层数固定 1（与源码的 `CardCmd.Afflict<T>(card, 1m)` 一致）；Power 自身的移除时机另在 `RegisterSideTurnEndPower` 一类的入口表达，见下 |
 | `RegisterRevivePower(Power 类型名, 死亡回合 Id, 复活回合 Id)` | 第三方 Power 的「死亡后**保留尸体**、稍后复活」（原版 `ReattachPower` 的对应物）：同侧队友里带同一个 Power 的个体构成一组，组里还有活人就保留尸体并强制走死亡回合，之后复活回合治疗 `Amount` 点并复活；全组都死才算真死。不登记的话「死了就直接判赢」或者「卡在死亡回合回不来」，见下 |
+| `RegisterRespawnPower(Power 类型名, 重生行动 Id, 待复活血量成员名, 处理器)` | 第三方 Power 的「死亡后**重生到新阶段**」（原版 `AdaptablePower`／测试体的对应物）：死亡保留尸体、强制走一个指定行动，那个行动里换最大生命并满血回来；处理器由登记方写（换血、摘掉该摘的 Power）。只要这个 Power 还在，战斗就不能结束——所以重生回合必须把它自己摘掉。同一条还替它回答 `ShouldOwnerDeathTriggerFatal`（false），见下 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
 #### 第三方分支状态的选择函数：默认**不在预测里调用**
@@ -758,6 +759,41 @@ ThirdPartyAdapterRegistry.RegisterRevivePower("你的Power类型名", "DEAD_MOVE
 4. **`AfterDeath` 那条重写仍然会在派发时记一条 `MethodNotMirrored` 风险**（核心对第三方重写没有通用
    `AfterDeath` 入口），但 `PredictionCoverage` 对登记过的复活 Power 把它记成**已补偿**——与原版
    `ReattachPower` 完全同一处理，所以不会连带把「这一局算不算打赢」压掉。
+
+#### 死亡后重生到新阶段（`RegisterRespawnPower`）
+
+另一型是原版 `AdaptablePower`（测试体）那一种：死亡后**必走**一个指定行动，那个行动里自己换最大生命
+并满血回来（往昔之章的觉醒者是「一阶段死亡 ⇒ `REBIRTH` 换成 300／320 血」）。它与上一条的区别是形状：
+没有「同一组里还有没有活人」这条判据，也不需要两个行动（死亡回合与重生回合是同一个）。核心把它写死在四处：
+
+- `ShouldRemoveAfterDeath`（保留尸体）与 `DeathPowerSupport.Trigger`（进入复活阶段 + 强制走那个行动）；
+- `ResolveReviveMove`（那一个行动执行时做重生）；
+- `RevivingEnemyHp`（复活中的尸体按「回来时会有多少血」计入终局口径）；
+- `IsCombatEnding` 里的 `ShouldStopCombatFromEnding`（**这个 Power 还在，战斗就不能结束**）。
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterRespawnPower(
+    "你的Power类型名",
+    "重生行动Id",                 // 死亡时被强制走的那个行动
+    "Phase2Hp",                  // 「回来时多少血」的怪物静态数值成员（已用 RegisterStaticIntMembers 声明）
+    static (simulator, combat, power) =>
+    {
+        // 换最大生命 + 治疗满；然后**必须把这个 Power 自己**（以及该摘掉的其它 Power）SetPowerAmount(..., 0)，
+        // 否则「Power 还在 ⇒ 战斗不能结束」会让战斗永远结束不了。
+    });
+```
+
+四条纪律：
+
+1. **Power 自己必须 `ShouldPowerBeRemovedAfterOwnerDeath() => false`**（否则尸体会被清掉），
+   并且重生回合里要**自己摘掉它**——那是战斗能否结束的开关。
+2. **`ShouldOwnerDeathTriggerFatal` / `ShouldStopCombatFromEnding` 都不要自己去调**：核心对登记过的
+   重生 Power 分别回答「这一阶段不算真死（false）」与「Power 还在就不能结束」，因为源码那两份实现读的是
+   实机（`owner.Monster` 的私有计数、`Owner.CombatState`、`IsDead`），在预测里会读到陈旧值。
+3. **处理器只读写模拟状态**：换血用 `SimCreatureState.SetMaxHp` ＋ `simulator.Heal`（与 `CreatureCmd.Heal`
+   同一条镜像），摘 Power 用 `SetPowerAmount(power, 0)`；返回后核心把死亡阶段清成「正常」，处理器不要碰它。
+4. **`AfterDeath` 那条重写仍会记一条 `MethodNotMirrored` 风险**，但 `PredictionCoverage` 对登记过的
+   重生 Power 记成**已补偿**（与原版 `AdaptablePower` 同一处理）。
 
 #### 回合开始的 `BeforeSideTurnStart`
 

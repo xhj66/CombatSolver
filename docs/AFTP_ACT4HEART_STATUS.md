@@ -1184,6 +1184,39 @@ TWIN_SLAM 三次形态往返）、尖刺外壳的两处伤害（出攻击牌与�
 也没有最小差分夹具。
 ---
 
+### 2.47 第三幕首领：觉醒者（`AwakenedOne`）与本体新增「死亡后重生到新阶段」入口
+
+**最后一只。** 两阶段首领：一阶段只有 `SLASH`（20）与 `SOUL_STRIKE`（6×4）；一阶段死亡**不是真死**——
+保留尸体、强制走 `REBIRTH`，那一个回合里换最大生命（`Phase2Hp`，A8+ 320／否则 300）并满血回来，
+同时摘掉自己身上全部减益 Power ＋ `CuriosityPower` ＋ `UnawakenedPower`；之后强制定 `DARK_ECHO`（40），
+再进二阶段的 `SLUDGE`（18 + 1 张 `Void` 进抽牌堆随机位置）与 `TACKLE`（10×3）。
+
+这条「重生」是原版 `AdaptablePower`／测试体那一**型**（一个行动里自己换血复活），与 §2.46 的
+`LifeLinkPower`（Reattach 型、按组治疗 `Amount`）形状不同，所以本批在 `RegisterRevivePower` 之外
+新增了 `RegisterRespawnPower`（文档见 [第三方适配手册](THIRD_PARTY_ADAPTERS.md) §2.13），AFTP 侧登记为
+`("UnawakenedPower", "REBIRTH", "Phase2Hp", 处理器)`。
+
+| 位置 | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `PHASE1_BRANCH` | `SelectPhase1Move`：抽一次 `NextInt(100)`；&lt;25 且上一步不是 SOUL_STRIKE ⇒ SOUL_STRIKE 否则 SLASH；否则最近两次不都是 SLASH ⇒ SLASH 否则 SOUL_STRIKE | `BeyondBranchResolvers.AwakenedOnePhase1`（进 `PureSelectors`：只读行动历史 + 一次 RNG） |
+| `PHASE2_BRANCH` | `SelectPhase2Move`：抽一次 `NextInt(100)`；&lt;50 且最近两次不都是 SLUDGE ⇒ SLUDGE 否则 TACKLE；否则最近两次不都是 TACKLE ⇒ TACKLE 否则 SLUDGE | `AwakenedOnePhase2`（同上，纯读取） |
+| `SLUDGE` | 18 点攻击 + 每个目标 1 张 `Void` 进**抽牌堆随机位置** | `AwakenedOneSludge`（`AddToCombat<Void>(Draw, 1, Random)`，与 Repulsor 的 DAZE 同一条路） |
+| `SLASH`／`SOUL_STRIKE`／`DARK_ECHO`／`TACKLE` | 纯攻击 | 无需登记（常量构造，§2.7 的稳定攻击名单里早已登记这五条） |
+| `REBIRTH` | `Respawns++`、`SetMaxHp(Phase2Hp)`、治疗满、移除全部减益 ＋ `CuriosityPower` ＋ `UnawakenedPower` | `RegisterRespawnPower` 的处理器 `AwakenedOneRebirth`（顺序照抄；`_respawns` 进状态成员、`Phase2Hp` 走静态数值成员）。行动的意图是 `HealIntent`+`BuffIntent`，另登记成空操作让意图侧认出它 |
+| `UnawakenedPower.ShouldOwnerDeathTriggerFatal` | 恒假（一阶段死亡不算真死） | 核心对登记过的重生 Power 直接回答 `false`（源码那份读实机） |
+| `UnawakenedPower.ShouldStopCombatFromEnding` | `!ShouldDisappearFromDoom \|\| IsDead`（即 `_respawns == 0` 时不许结束） | 核心对登记过的重生 Power 回答「**Power 还在（层数 &gt; 0）⇒ 战斗不能结束**」；`REBIRTH` 把它自己摘掉之后战斗就能结束（这就是 `ShouldDisappearFromDoom` 那条属性重写的等价表达） |
+| `UnawakenedPower.ShouldPowerBeRemovedOnDeath(power)` | 拥有者死亡时移除全部减益 Power | 核心的 `RemovePowersAfterDeath` 本来就按各 Power 自己的 `ShouldPowerBeRemovedAfterOwnerDeath()` 处理原版减益（返回 true ⇒ 摘掉），效果一致；**这条钩子核心没有通用入口**，所以记录在案而不是假装镜像 |
+| `UnawakenedPower.AfterDeath` | 记 `isReviving`、`SetMoveImmediate(REBIRTH, true)` | 由 `DeathPowerSupport` 的重生分支表达（保留尸体 + 强制 REBIRTH）；这条重写仍记一条 `MethodNotMirrored` 风险，`PredictionCoverage` 对登记过的重生 Power 记成**已补偿** |
+| `RegenEnemyPower`（常规回合末） | `side == Owner.Side && !IsDead` ⇒ 治疗 `Amount`（入场按 `RegenAmount` 挂好，A9+ 15／否则 10） | `RegisterSideTurnEndPower("RegenEnemyPower", …)`；它是**增益**型，`REBIRTH` 不会摘掉它，二阶段继续回血 |
+| `CuriosityPower.AfterCardPlayed` | 打出的牌是**能力牌**时，持有者获得 `Amount` 点力量（A9+ 2／否则 1） | `AfterCardPlayedMirrors.Register`（按类型登记，与尖刺外壳同一个入口） |
+| `AfterAddedToRoom` | 挂 `RegenEnemyPower`／`CuriosityPower`／`UnawakenedPower`（＋A9 的起始力量） | 发生在根捕获之前，已在根里 |
+| `ShouldDisappearFromDoom => Respawns >= 1` | 属性重写 | 求解器不读这个属性：它的效果就是上面那条「战斗能不能结束」的判据 |
+
+**未验证**：没有在游戏内打过「觉醒者」遭遇，两阶段的抽样、一阶段死亡 → `REBIRTH` 换血重生 →
+`DARK_ECHO` → 二阶段的全过程、`SLUDGE` 的 `Void` 落点、每回合回血与「打能力牌加力量」都**未实机验证**；
+也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1429,10 +1462,10 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
 | 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24）、✔ Reptomancer（§2.25）、✔ Exploder（§2.26）、✔ Donu（§2.27）、✔ Deca（§2.28） |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
-| 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | ✔ BronzeAutomaton（§2.32）、✔ Collector（§2.34）、✔ GremlinLeader（§2.35）、✔ Byrd（§2.36）；**复活同一个个体**是另一条路：✔ Darkling（§2.46，`RegisterRevivePower`） | AwakenedOne（REBIRTH）、Reptomancer |
+| 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | ✔ BronzeAutomaton（§2.32）、✔ Collector（§2.34）、✔ GremlinLeader（§2.35）、✔ Byrd（§2.36）；**复活同一个个体**是另一条路：✔ Darkling（§2.46，`RegisterRevivePower`）、✔ AwakenedOne（§2.47，`RegisterRespawnPower`） | ✔ Reptomancer（§2.25，召唤蛇匕首） |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
-| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化）、✔ LifeLinkPower（§2.46，走复活阶段；它与原版 `ReattachPower` 逐行同形，内部数据不需要镜像） | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
-| 5 | 强制改写当前行动 / 眩晕 | ✔ Guardian（`ForceMonsterMove`，§2.44）、✔ Lagavulin（`ForceStunnedMove`，§2.39） | ✔ ShelledParasite（§2.33） | AwakenedOne |
+| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化）、✔ LifeLinkPower（§2.46，走复活阶段；它与原版 `ReattachPower` 逐行同形，内部数据不需要镜像）、✔ UnawakenedPower／✔ CuriosityPower／✔ RegenEnemyPower（§2.47，重生阶段 + `AfterCardPlayed` + 常规回合末） | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | ReactivePower、ShiftingPower、StrengthUpPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower（都已在 §2.37–§2.41 各自批次里落地，本列只是早期侦察的残余） |
+| 5 | 强制改写当前行动 / 眩晕 | ✔ Guardian（`ForceMonsterMove`，§2.44）、✔ Lagavulin（`ForceStunnedMove`，§2.39） | ✔ ShelledParasite（§2.33） | ✔ AwakenedOne（§2.47，`REBIRTH` 走 `RegisterRespawnPower` 的强制行动） |
 | 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
 | 7 | 病症／可打出性镜像 | ✔ SlaverRed（`EntangledPower` + `EntangledOriginal` 病症，§2.45：新增 `RegisterCardAfflictionSource`） | — | — |
 | 8 | 预测期卡牌操作 | Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张） | — | — |
@@ -1453,7 +1486,8 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 **求解器本体仍要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
 ② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ 玩家侧非 Power 的回合开始特化与遗物触发（**非 Late 的 `AfterSideTurnEnd`、第三方
 `BeforeSideTurnStart` 都已在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7，**已在 §2.45 补上**）；
-⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，只剩 `AwakenedOne`）。
+⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，**已全部落地**：`ForceMonsterMove`／
+`ForceStunnedMove` 与 `RegisterRespawnPower` 的强制行动）。
 每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。
 
@@ -1510,10 +1544,10 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 `TorchHead`（§2.18，零登记）；
 第三幕 `Repulsor`／`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、
 `SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）；
-其后 §2.27–§2.46 的批次见各自小节（`Donu`／`Deca`／`SnakePlant`／`BronzeAutomaton`／`BronzeOrb`／
+其后 §2.27–§2.47 的批次见各自小节（`Donu`／`Deca`／`SnakePlant`／`BronzeAutomaton`／`BronzeOrb`／
 `ShelledParasite`／`Collector`／`GremlinLeader`／`Byrd`／`Nemesis`／`Transient`／`Lagavulin`／`WrithingMass`／
-`TimeEater`／`Hexaghost`／`Guardian`／`SlaverRed`／`Darkling`）。**第一幕 20 只全部完成；第三幕只剩
-`AwakenedOne`。**
+`TimeEater`／`Hexaghost`／`Guardian`／`SlaverRed`／`Darkling`／`AwakenedOne`）。
+**第一幕 20 只、第二幕 20 只、第三幕 17 只全部完成——本轮目标里的全部怪物都已有逐行对照的适配。**
 
 **未适配与确切缺口**（每条都已反编译核对过，动手时不需要重新侦察）：
 
@@ -1534,7 +1568,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 三 | ~~`Nemesis`~~（已适配 §2.37） | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
 | 三 | ~~`WrithingMass`~~（已适配 §2.40；`MEGA_DEBUFF` 的牌组塞 Paraste 属跨战斗效果，未建模，见 §2.40） | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
 | 三 | ~~`Darkling`~~（已适配 §2.46） | 复活/重接：`LifeLinkPower` 是原版 `ReattachPower` 的逐行复制品，走本批新增的 `RegisterRevivePower("LifeLinkPower","DEAD_MOVE","REATTACH_MOVE")`（保留尸体 + 死亡回合 + 治疗复活 + 全组死才算真死）；`ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 两个属性重写求解器不读，效果由保留尸体那条表达；`AfterDeath` 风险记成已补偿 |
-| 三 | `AwakenedOne`（**最后一只**；2026-09-21 已侦察清楚，下一批可直接动手） | ① 三条 Power：`RegenEnemyPower`（常规回合末 `side == Owner.Side && !IsDead` ⇒ 治疗 `Amount`，走既有 `RegisterSideTurnEndPower`）、`CuriosityPower`（`AfterCardPlayed`：打出的牌是**能力牌**时自己加 `Amount` 力量，走既有 `AfterCardPlayedMirrors.Register(Type, …)`）、`UnawakenedPower`（一阶段的死亡语义）。② 一阶段死亡**不是真死**：`ShouldOwnerDeathTriggerFatal() => false`、`ShouldCreatureBeRemovedFromCombatAfterDeath(owner) => false`、`ShouldStopCombatFromEnding() => !ShouldDisappearFromDoom \|\| Owner.IsDead`（`_respawns == 0` 时阻止战斗结束）、`ShouldAllowHitting` 复活中不可打、`ShouldPowerBeRemovedOnDeath(power) => power.Type == Debuff`（核心没有这条钩子的入口，但 `REBIRTH` 自己会摘掉全部减益，影响可忽略，需记明）；`AfterDeath` 里 `SetMoveImmediate(REBIRTH, true)`（源码公开的 `TriggerDeadState()`）。③ `REBIRTH` 一个回合做完全部复活工作：`Respawns++`、`SetMaxHp(Phase2Hp)`、治疗满、移除全部 Debuff 能力 + `CuriosityPower` + `UnawakenedPower`；之后强制定 `DARK_ECHO`（40），再进 `PHASE2_BRANCH`。④ 两个分支各抽一次 `NextInt(100)`：PHASE1 `<25` 且上一步不是 SOUL_STRIKE ⇒ SOUL_STRIKE 否则 SLASH，否则「最近两次不都是 SLASH」⇒ SLASH 否则 SOUL_STRIKE；PHASE2 `<50` 且最近两次不都是 SLUDGE ⇒ SLUDGE 否则 TACKLE，否则「最近两次不都是 TACKLE」⇒ TACKLE 否则 SLUDGE——都不写状态，可声明为纯读取。⑤ `SLASH`（20）、`SOUL_STRIKE`（6×4）、`TACKLE`（10×3）是纯攻击；`SLUDGE`（18 + 1 张 `Void` 进**抽牌堆随机位置**，`CardPilePosition.Random`）与 `DARK_ECHO`（40）是攻击加牌／纯攻击。⑥ 要补的本体能力两条：**(a) 「重生」链**（`UnawakenedPower` 是 `AdaptablePower`／TestSubject 那一型：死亡保留尸体 ⇒ 强制走一个行动 ⇒ 那一个行动里换最大生命并复活；现有 `RegisterRevivePower` 是 Reattach 那一型「治疗 `Amount`」，形状不同，要么扩成带处理器、要么另开一条）；**(b) 「第三方 Power 阻止战斗结束」的登记**（`Hook.ShouldStopCombatFromEnding` 会直接在影子模型上调 `UnawakenedPower` 的重写，而它读的是实机 `owner.Monster` 的 `_respawns` 与 `IsDead`，必须改由模拟状态回答）。⑦ `ShouldDisappearFromDoom => Respawns >= 1` 是属性重写，求解器不读，效果由 (b) 那条表达 |
+| 三 | ~~`AwakenedOne`~~（已适配 §2.47，**最后一只**） | 两阶段 + 重生：一阶段死亡保留尸体并强制走 `REBIRTH`（那个回合里 `Respawns++`、换 `Phase2Hp` 血、摘掉全部减益 + `CuriosityPower` + `UnawakenedPower`），走本批新增的 `RegisterRespawnPower`；两个分支 `PHASE1_BRANCH`／`PHASE2_BRANCH` 都声明为纯读取；`RegenEnemyPower` 走常规回合末、`CuriosityPower` 走 `AfterCardPlayed`；`SLUDGE` 塞 `Void` 进抽牌堆随机位置。`ShouldOwnerDeathTriggerFatal`／`ShouldStopCombatFromEnding`／`ShouldDisappearFromDoom` 都由核心按模拟状态回答；`ShouldPowerBeRemovedOnDeath` 核心没有通用入口，效果由 `RemovePowersAfterDeath` 的既有规则覆盖（已记明） |
 | 三 | ~~`TimeEater`~~（已适配 §2.41） | `TimeWarpPower`（回合计数、内部 DynamicVar + 卡牌计数）+ `HASTE` + `AfterAddedToRoom` |
 
 **`BeforeSideTurnStart` 的落点（本轮侦察结论，供下一批直接实现）**：

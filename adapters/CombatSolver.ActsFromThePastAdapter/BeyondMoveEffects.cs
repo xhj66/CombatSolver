@@ -57,6 +57,7 @@ internal static class BeyondMoveEffects
         "Hexaghost",
         "Guardian",
         "Darkling",
+        "AwakenedOne",
     ];
 
     /// <summary>AFTP 自己的 <c>ModeShiftPower</c>（守护者的形态切换阈值）与 <c>SharpHidePower</c>（尖刺外壳）。</summary>
@@ -158,6 +159,10 @@ internal static class BeyondMoveEffects
 
     /// <summary>Darkling 的 HARDEN 格挡（AFTP <c>HardenBlock</c>）。</summary>
     private static int _darklingHardenBlock;
+
+    /// <summary>AFTP 自己的 <c>UnawakenedPower</c>（觉醒者一阶段的「未觉醒」）与 <c>CuriosityPower</c>。</summary>
+    private static Type _unawakenedType = null!;
+    private static Type _curiosityType = null!;
 
     /// <summary>GiantHead 每次 COUNT 递减后给 IT_IS_TIME 加的伤害（AFTP <c>IncrementDmg</c>）。</summary>
     private static int _giantHeadIncrementDmg;
@@ -266,6 +271,19 @@ internal static class BeyondMoveEffects
         //（ShouldRemoveAfterDeath／DeathPowerSupport／ResolveReviveMove），AfterDeath 那条重写
         // 在 PredictionCoverage 里按「已登记复活 Power」记成已补偿。
         _darklingHardenBlock = AfpReflection.RequireConst("Darkling", "HardenBlock", 12);
+        // 觉醒者（AwakenedOne）：一阶段死亡不是真死，走 REBIRTH 换血重生。三个 Power 逐个核对；
+        // 它自己那两条分支（PHASE1_BRANCH／PHASE2_BRANCH）在 BeyondBranchResolvers 里。
+        _unawakenedType = AfpReflection.RequireType("ActsFromThePast.UnawakenedPower");
+        _curiosityType = AfpReflection.RequireType("ActsFromThePast.CuriosityPower");
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "AfterDeath", 4);
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldAllowHitting", 1);
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldStopCombatFromEnding", 0);
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldCreatureBeRemovedFromCombatAfterDeath", 1);
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldPowerBeRemovedOnDeath", 1);
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldPowerBeRemovedAfterOwnerDeath", 0);
+        _ = AfpReflection.RequireOverride("UnawakenedPower", "ShouldOwnerDeathTriggerFatal", 0);
+        _ = AfpReflection.RequireOverride("CuriosityPower", "AfterCardPlayed", 2);
+        _ = AfpReflection.RequireOverride("RegenEnemyPower", "AfterSideTurnEnd", 3);
         AfpReflection.VerifyAscensionHelper();
     }
 
@@ -641,6 +659,140 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Darkling", "DEAD_MOVE", DarklingNoMoveEffect);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Darkling", "REATTACH_MOVE", DarklingNoMoveEffect);
         ThirdPartyAdapterRegistry.RegisterRevivePower("LifeLinkPower", "DEAD_MOVE", "REATTACH_MOVE");
+
+        // --- 觉醒者（AwakenedOne，第三幕首领） ---
+        // 一阶段 → REBIRTH 换血重生 → DARK_ECHO → 二阶段。_respawns 是分支/死亡都读的计数，
+        // 进状态名单；Phase2Hp 是「重生后有多少血」，终局口径与 REBIRTH 都要用，走静态数值成员。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("AwakenedOne", "_respawns");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("AwakenedOne", "Phase2Hp");
+        // UnawakenedPower：一阶段死亡保留尸体、强制走 REBIRTH，那个回合里换血并摘掉自己与全部减益。
+        ThirdPartyAdapterRegistry.RegisterRespawnPower(
+            "UnawakenedPower",
+            "REBIRTH",
+            "Phase2Hp",
+            AwakenedOneRebirth);
+        // REBIRTH 的意图是 HealIntent + BuffIntent（都是表现），真正的效果由上面那条重生注册负责；
+        // 这里登记成空操作，让意图侧认出这个行动（与原版测试体的 RESPAWN_MOVE 同一处理）。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("AwakenedOne", "REBIRTH", AwakenedOneNoMoveEffect);
+        // SLUDGE：18 点攻击 + 1 张 Void 进**抽牌堆随机位置**（其余四个行动都是纯攻击）。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("AwakenedOne", "SLUDGE", AwakenedOneSludge);
+        // RegenEnemyPower：自己那一方回合末、还活着就治疗 Amount（入场时按 RegenAmount 挂好，已在根里）。
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("RegenEnemyPower", RegenEnemyTurnEnd);
+        // CuriosityPower：玩家打出**能力牌**时，自己获得 Amount 点力量。
+        AfterCardPlayedMirrors.Register(_curiosityType, CuriosityAfterCardPlayed);
+    }
+
+    /// <summary>
+    /// AwakenedOne.REBIRTH：`Respawns++`、把最大生命换成 <c>Phase2Hp</c>（单人即该值）并治疗满，
+    /// 最后摘掉自己身上**全部减益 Power** + `CuriosityPower` + `UnawakenedPower`。
+    /// </summary>
+    /// <remarks>
+    /// 顺序照源码 <c>RebirthMove</c>：先 <c>Respawns++</c>，再换血，最后移除那批 Power。
+    /// 核心在处理器返回后把死亡阶段清成「正常」，所以这里不碰死亡阶段。
+    /// <c>ShouldDisappearFromDoom</c>（<c>Respawns &gt;= 1</c>）是属性重写、求解器不读：它的效果由
+    /// 「UnawakenedPower 在场时战斗不能结束」表达，而这个处理器把 UnawakenedPower 摘掉之后战斗就能结束了。
+    /// </remarks>
+    private static void AwakenedOneRebirth(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power)
+    {
+        Creature owner = power.Owner;
+        combat.SetMonsterInt(owner, "_respawns", combat.GetMonsterInt(owner, "_respawns") + 1);
+        int phase2Hp = combat.GetMonsterStaticInt(owner, "Phase2Hp");
+        SimCreatureState state = simulator.State.GetCreature(owner);
+        state.SetMaxHp(phase2Hp);
+        if (state.CurrentHp < phase2Hp)
+            simulator.Heal(owner, phase2Hp - state.CurrentHp);
+        // 源码：Creature.Powers.Where(p => p.Type == Debuff || p is CuriosityPower || p is UnawakenedPower)
+        foreach (PowerModel candidate in combat.EffectivePowers().ToArray())
+        {
+            if (!ReferenceEquals(candidate.Owner, owner) || candidate.Amount == 0)
+                continue;
+            if (candidate.Type == PowerType.Debuff
+                || ReferenceEquals(candidate, power)
+                || candidate.GetType() == _curiosityType)
+            {
+                combat.SetPowerAmount(candidate, 0);
+            }
+        }
+    }
+
+    /// <summary>
+    /// AwakenedOne.SLUDGE：攻击之后往**抽牌堆的随机位置**塞 1 张 <c>Void</c>
+    /// （源码 <c>CreateCard&lt;Void&gt;</c> + <c>AddGeneratedCardToCombat(…, Draw, null, Random)</c>）。
+    /// </summary>
+    private static bool AwakenedOneSludge(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = combat;
+        _ = move;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.AddToCombat<MegaCrit.Sts2.Core.Models.Cards.Void>(
+            player,
+            PileType.Draw,
+            1,
+            null,
+            CardPilePosition.Random);
+        return true;
+    }
+
+    /// <summary>AwakenedOne.REBIRTH 的意图是治疗 + 增益，效果由重生注册负责，这里只占位。</summary>
+    private static bool AwakenedOneNoMoveEffect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = combat;
+        _ = move;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>RegenEnemyPower.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末，只要自己没死
+    /// 就治疗 <c>Amount</c> 点（入场时按 <c>RegenAmount</c> 挂好，层数已在根里）。
+    /// </summary>
+    private static void RegenEnemyTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = combat;
+        _ = participants;
+        if (side != power.Owner.Side || simulator.State.GetCreature(power.Owner).IsDead)
+            return;
+        simulator.Heal(power.Owner, Math.Max(0, power.Amount));
+    }
+
+    /// <summary>
+    /// AFTP <c>CuriosityPower.AfterCardPlayed</c>：打出的牌是**能力牌**（<c>CardType.Power</c>）时，
+    /// 持有者获得 <c>Amount</c> 点力量（源码没有玩家归属判断，单人即该玩家）。
+    /// </summary>
+    private static void CuriosityAfterCardPlayed(
+        AbstractModel model,
+        AfterCardPlayedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.CardPlay.Card.Type != CardType.Power)
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+            throw new PredictionUnsupportedException("好奇缺少可写的预测状态。");
+        combat.Apply<StrengthPower>(power.Owner, Math.Max(0, power.Amount), power.Owner);
     }
 
     /// <summary>

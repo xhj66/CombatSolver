@@ -17,9 +17,7 @@ internal sealed partial class SimulatedCombatState
             int count = creatures.Count(creature => creature != player.Creature
                 && EffectivePowers()
                     .Where(power => power.Owner == creature)
-                    .All(power => ThirdPartyAdapterRegistry.IsRevivePowerName(power.GetType().Name)
-                        ? AreAllRegisteredReviveSiblingsDead(simulator, power.Owner, power.GetType().Name)
-                        : power.ShouldOwnerDeathTriggerFatal()));
+                    .All(power => CorePowerSupport.OwnerDeathTriggersFatal(simulator, this, power)));
             fatalCounts[player] = count;
         }
         foreach (Creature creature in creatures)

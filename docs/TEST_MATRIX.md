@@ -1,5 +1,32 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕首领觉醒者（`AwakenedOne`，最后一只）与本体新增「死亡后重生到新阶段」入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  **无编译器警告**）；已部署产物反编译核对：核心里 `ThirdPartyAdapterRegistry.RespawnPowerRegistration` /
+  `RegisterRespawnPower` / `TryGetRespawnPower` / `IsRespawnPowerName`、`SimulatedCombatState` 的
+  `RegisteredRespawnPower` / `BeginRegisteredRespawn` / `ResolveRegisteredRespawnMove` /
+  `ShouldStopCombatFromEnding`（与 `ShouldRemoveAfterDeath`、`RevivingEnemyHp`、`ResolveReviveMove` 串起来）、
+  `DeathPowerSupport` 的重生分支、`CorePowerSupport.OwnerDeathTriggersFatal`（重生型恒假）与 `DoomKill`
+  共用它、`PredictionCoverage` 把登记过的重生 Power 的 `AfterDeath` 记成已补偿、
+  `CombatPredictionSimulator.IsCombatEnding` 对 `SimulatedCombatState` 走新的守门；
+  适配里 `BeyondBranchResolvers.AwakenedOnePhase1` / `AwakenedOnePhase2`（都进 `PureSelectors`）、
+  `AwakenedOneRebirth`（`Respawns++` → 换 `Phase2Hp` 血 → 摘全部减益 + `CuriosityPower` + `UnawakenedPower`）、
+  `AwakenedOneSludge`（`AddToCombat<Void>(Draw, 1, Random)`）、`AwakenedOneNoMoveEffect`、
+  `RegenEnemyTurnEnd`、`CuriosityAfterCardPlayed`、`_respawns` 状态成员与 `Phase2Hp` 静态成员、
+  `RegisterRespawnPower("UnawakenedPower","REBIRTH","Phase2Hp", …)`、`UnawakenedPower` 七条 /
+  `CuriosityPower` 一条 / `RegenEnemyPower` 一条 `RequireOverride` 全部在场；
+  部署产物与工作区构建哈希逐字节相同（核心 6,309,888 B、AFTP 120,832 B）。
+- 关键判断：① 重生是原版 `AdaptablePower`／测试体那一**型**，与 §2.46 的 Reattach 型形状不同，所以另开
+  `RegisterRespawnPower`（带处理器），而不是把复活入口撑成万能接口；② `ShouldOwnerDeathTriggerFatal` 与
+  `ShouldStopCombatFromEnding` 都由核心按模拟状态回答——源码那两份实现读实机（`owner.Monster` 的
+  `_respawns`、`Owner.IsDead`），直接调会在预测里读到陈旧值；③ `ShouldDisappearFromDoom` 是属性重写、
+  全库没有引用，其效果由「重生 Power 还在 ⇒ 战斗不能结束」表达；④ `ShouldPowerBeRemovedOnDeath`
+  （拥有者死亡时移除减益）核心没有通用入口，但 `RemovePowersAfterDeath` 对原版减益本来就会摘掉，
+  效果等价，已记明而不是假装镜像。
+- **未验证**：没有在游戏内打过「觉醒者」遭遇，两阶段抽样、一阶段死亡 → `REBIRTH` 换血 → `DARK_ECHO` →
+  二阶段的全过程、`SLUDGE` 的 `Void` 落点、每回合回血与「打能力牌加力量」都**未实机验证**；也没有差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕黑暗精灵（`Darkling`）与本体新增「死亡后保留尸体并复活」入口（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

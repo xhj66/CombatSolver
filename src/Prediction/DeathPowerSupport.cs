@@ -73,6 +73,13 @@ internal static class DeathPowerSupport
                 continue;
             }
 
+            // 第三方「死亡后重生到新阶段」的 Power（原版 AdaptablePower／测试体那一类的对应物）。
+            if (ThirdPartyAdapterRegistry.IsRespawnPowerName(power.GetType().Name))
+            {
+                combat.BeginRegisteredRespawn(simulator, dead, power);
+                continue;
+            }
+
             switch (power)
             {
                 case AdaptablePower:

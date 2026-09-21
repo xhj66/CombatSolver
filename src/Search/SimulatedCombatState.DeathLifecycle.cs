@@ -60,6 +60,12 @@ internal sealed partial class SimulatedCombatState
         }
         if (creature.Monster is TestSubject)
             return RemainingTestSubjectFormHp(creature, currentHp: 0);
+        if (RegisteredRespawnPower(creature) is { } respawn
+            && ThirdPartyAdapterRegistry.TryGetRespawnPower(respawn.GetType().Name, out var respawnRegistration))
+        {
+            // 复活中的重生个体：按「回来时会有多少生命」计入终局口径。
+            return Math.Max(0, GetMonsterStaticInt(creature, respawnRegistration.PendingHpMemberName));
+        }
         if (RegisteredRevivePower(creature) is { } revivePower)
         {
             // 与 ReattachPower 那条同形：组里还有没被永久判死的队友时，尸体按待复活的层数计入终局口径。
@@ -179,6 +185,66 @@ internal sealed partial class SimulatedCombatState
             .Where(candidate => candidate != creature && HasRegisteredRevivePowerNamed(candidate, powerTypeName))
             .ToArray();
 
+    /// <summary>这个生物身上已登记的第三方重生 Power（层数大于 0），没有就是 <c>null</c>。</summary>
+    private PowerModel? RegisteredRespawnPower(Creature creature)
+    {
+        IReadOnlyList<PowerModel> powers = EffectivePowers();
+        for (int index = 0; index < powers.Count; index++)
+        {
+            PowerModel power = powers[index];
+            if (power.Amount > 0
+                && ReferenceEquals(power.Owner, creature)
+                && ThirdPartyAdapterRegistry.IsRespawnPowerName(power.GetType().Name))
+            {
+                return power;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 第三方重生 Power 的持有者死亡：保留尸体、进入复活阶段、强制走它的「重生回合」。
+    /// 与 <see cref="BeginAdaptableRevive"/> 同形（原版测试体那一型）。
+    /// </summary>
+    public void BeginRegisteredRespawn(
+        CombatPredictionSimulator simulator,
+        Creature creature,
+        PowerModel power)
+    {
+        _ = simulator;
+        if (!ThirdPartyAdapterRegistry.TryGetRespawnPower(power.GetType().Name, out var registration))
+        {
+            throw new PredictionUnsupportedException(
+                $"{power.GetType().Name} 没有登记重生语义，无法开始重生阶段。");
+        }
+        SetDeathPhase(creature, PredictedDeathPhase.Reviving);
+        ForceMonsterMove(creature, registration.RespawnMoveId);
+    }
+
+    /// <summary>
+    /// 只要场上还有已登记的重生 Power（层数大于 0），战斗就不能结束——那个个体还欠一次重生。
+    /// 对应源码 <c>ShouldStopCombatFromEnding</c>：第三方那份实现读的是实机
+    /// （<c>owner.Monster</c> 的 <c>_respawns</c> 与 <c>IsDead</c>），所以这类类型由模拟状态回答，
+    /// 其余监听者照旧调它们自己的重写。
+    /// </summary>
+    public bool ShouldStopCombatFromEnding()
+    {
+        foreach (AbstractModel listener in IterateHookListeners())
+        {
+            if (listener is PowerModel power
+                && ThirdPartyAdapterRegistry.IsRespawnPowerName(power.GetType().Name))
+            {
+                // 登记过的重生 Power：**不碰**它自己的重写（那份读实机），只按模拟状态的层数回答。
+                if (power.Amount > 0)
+                    return true;
+                continue;
+            }
+            if (listener.ShouldStopCombatFromEnding())
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// 第三方复活 Power 的持有者死亡：组里还剩活人就保留尸体并强制走它的「死亡回合」，
     /// 全组都死了就把整组标成永久死亡（战斗可以结束）。与 <see cref="BeginReattach"/> 同形。
@@ -264,9 +330,31 @@ internal sealed partial class SimulatedCombatState
                 else
                 {
                     ResolveRegisteredReviveMove(simulator, creature, moveId);
+                    ResolveRegisteredRespawnMove(simulator, creature, moveId);
                 }
                 break;
         }
+    }
+
+    /// <summary>
+    /// 第三方重生 Power 的「重生回合」：调登记进来的处理器把那一个回合里该做的事全做完
+    /// （换最大生命、治疗、摘掉该摘的 Power），然后清掉死亡阶段。
+    /// </summary>
+    private void ResolveRegisteredRespawnMove(
+        CombatPredictionSimulator simulator,
+        Creature creature,
+        string moveId)
+    {
+        if (_deathPhases?.GetValueOrDefault(creature) != PredictedDeathPhase.Reviving)
+            return;
+        if (RegisteredRespawnPower(creature) is not { } power
+            || !ThirdPartyAdapterRegistry.TryGetRespawnPower(power.GetType().Name, out var registration)
+            || !string.Equals(registration.RespawnMoveId, moveId, StringComparison.Ordinal))
+        {
+            return;
+        }
+        registration.Resolve(simulator, this, power);
+        SetDeathPhase(creature, PredictedDeathPhase.None);
     }
 
     /// <summary>

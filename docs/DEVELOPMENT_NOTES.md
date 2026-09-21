@@ -1,5 +1,21 @@
 # CombatSolver 开发笔记与未来构想
 
+## 未发布：第三幕首领觉醒者（`AwakenedOne`）与本体新增「死亡后重生到新阶段」入口（2026-09-21）
+
+- 新增登记入口 `ThirdPartyAdapterRegistry.RegisterRespawnPower(Power 类型名, 重生行动 Id, 待复活血量成员名, 处理器)`：
+  原版 `AdaptablePower`／测试体那一型的第三方对应物——死亡保留尸体、进入复活阶段并强制走一个指定行动，
+  那个行动里由登记方的处理器换最大生命并满血回来；复活中的尸体按「回来时多少血」计入终局口径，
+  且**只要这个 Power 还在，战斗就不能结束**（重生回合必须把它自己摘掉）。与 §2.46 的
+  `RegisterRevivePower`（Reattach 型、按组治疗 `Amount`）是两种形状，各自一条入口。
+- `ShouldOwnerDeathTriggerFatal` 与 `ShouldStopCombatFromEnding` 对登记过的重生 Power 都改由**模拟状态**
+  回答（源码那两份实现读实机 `owner.Monster` 的私有计数与 `IsDead`）；`PredictionCoverage` 把它的
+  `AfterDeath` 风险记成已补偿。
+- `AwakenedOne`：两个分支 `PHASE1_BRANCH`／`PHASE2_BRANCH`（各抽一次 `NextInt(100)`，纯读取）、
+  `SLUDGE` 塞 `Void` 进抽牌堆随机位置、`RegenEnemyPower` 走常规回合末回血、`CuriosityPower` 走
+  `AfterCardPlayed`（打能力牌加力量）、`REBIRTH` 的换血与摘 Power 由重生处理器负责。
+  **往昔之章第一、二、三幕的全部怪物至此都有逐行对照的适配**；未实机验证的部分照旧逐条记在
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.47，登记纪律见
+  [第三方 Mod 适配手册](THIRD_PARTY_ADAPTERS.md) §2.13。
 ## 未发布：第三幕黑暗精灵（`Darkling`）与本体新增「死亡后保留尸体并复活」入口（2026-09-21）
 
 - 新增登记入口 `ThirdPartyAdapterRegistry.RegisterRevivePower(Power 类型名, 死亡回合 Id, 复活回合 Id)`：

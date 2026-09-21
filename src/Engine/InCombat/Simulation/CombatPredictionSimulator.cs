@@ -288,6 +288,11 @@ internal sealed partial class CombatPredictionSimulator
         // 也不会再复查。
         if (semantics?.HasUnresolvedSpawningDeath() == true)
             return false;
+        // 第三方「重生」Power 的守门：源码那份 ShouldStopCombatFromEnding 读的是实机
+        //（owner.Monster 的私有计数与 IsDead），预测里必须由模拟状态回答，见
+        // SimulatedCombatState.ShouldStopCombatFromEnding。
+        if (State.CombatState is SimulatedCombatState simulatedCombat)
+            return !simulatedCombat.ShouldStopCombatFromEnding();
         return !Hook.ShouldStopCombatFromEnding(State.CombatState);
     }
 }
