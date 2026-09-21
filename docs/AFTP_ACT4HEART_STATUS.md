@@ -970,6 +970,32 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.39 第一幕精英：拉瓦格林（`Lagavulin`）与本体新增「VeryEarly 回合末」入口
+
+它的睡眠 Power 有四条钩子，其中 `BeforeSideTurnEndVeryEarly` 在求解器里**没有第三方入口**（只有 Early）。
+这一条不能合并到 Early：源码在这里先把金属化摘掉，而同一回合末的 Early 阶段金属化会按层数给格挡——
+顺序反了就会多给一次格挡。所以新增 `BeforeSideTurnEndMirrors.RegisterVeryEarly(模型类型名, handler)`，
+派发时按阶段各自 Seal（与 `RegisterEarly` 同一套纪律）。
+
+| 部位 | 源码（`ActsFromThePast.Lagavulin`） | 适配 |
+| --- | --- | --- |
+| 开场 | `StartsAwake`（**遭遇**决定：`DeadAdventurerLagavulin` 会把新实例置真）为真就直接醒着；否则挂 8 层 AFTP `MetallicizePower` 与 3 层 `AsleepLagavulinPower` | 不需要代码（都在 `AfterAddedToRoom`，根捕获时已在实例上）；金属化的回合末镜像早有（CityHooks） |
+| `MAIN_BRANCH` | **一次 RNG 都不抽**：还没醒且身上还挂着睡眠 Power ⇒ SLEEP；`StartsAwake` 且行动历史为空 ⇒ DEBUFF；减益计数 ≥ 2 ⇒ DEBUFF；最近连出两次 ATTACK ⇒ DEBUFF；否则 ATTACK | `BeyondBranchResolvers.Lagavulin`（读模拟状态与行动历史，**已声明为纯读取**）；四个标量进状态名单 |
+| `SLEEP` | 睡眠计数 +1（台词） | `LagavulinSleep` |
+| `ATTACK` | 减益计数 +1，然后攻击 | `LagavulinAttack`（攻击按意图结算） |
+| `DEBUFF` | 计数清零，再给每个活着的目标 `DebuffAmount` 点敏捷与力量（**负数**：A9+ -2／否则 -1） | `LagavulinDebuff`（数值走静态数值成员） |
+| `AsleepLagavulinPower.AfterDamageReceived` | 持有者挨到非零未被格挡伤害 ⇒ 摘金属化 ＋ `WakeUpFromDamage()`（置醒＋眩晕到 ATTACK）＋ 移除自己 | `AsleepLagavulinDamageReceived`：`SetPowerAmount(metallicize, 0)` ＋ `SetMonsterBool("_isAwake", true)` ＋ `ForceStunnedMove(owner, "ATTACK")` ＋ 移除睡眠 Power |
+| `AsleepLagavulinPower.BeforeSideTurnStart` | 第 1 回合、玩家侧开始时按金属化层数补一次 `Unpowered` 格挡 | `RegisterSideTurnStartPower("AsleepLagavulinPower", …)` |
+| `AsleepLagavulinPower.BeforeSideTurnEndVeryEarly` | 自己那一方回合末、睡眠只剩最后一层时先摘金属化 | `RegisterVeryEarly(类型, …)`（**本轮新增入口**） |
+| `AsleepLagavulinPower.AfterSideTurnEnd`（非 Late） | 自己那一方回合末减 1 层；减到 0 自然唤醒（置醒、不眩晕） | `RegisterSideTurnEndPower("AsleepLagavulinPower", …)` |
+
+自检用四条 `RequireOverride` 钉住这个 Power 的重写（6／4／3／3 参）。`Lagavulin` **没有** `BeforeDeath` 重写
+（反编译确认），因此没有死亡钩子要登记。
+
+**未验证**：没有在游戏内打过「拉瓦格林」遭遇，睡眠—唤醒两条路径、`DebuffAmount` 的负数值、第 1 回合那次
+补格挡与四处阶段顺序都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1301,7 +1327,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 一 | `SlaverRed` | 手牌**病症与可打出性**镜像（`EntangledPower` + `EntangledOriginal` 病症，组 7）——需要本体的「卡牌可打出性」入口 |
 | 一 | `Hexaghost` | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
 | 一 | `Guardian` | `SetMoveImmediate` 式强制改行动 + `ModeShiftPower`（形态切换）+ `SharpHidePower` + `BeforeDeath`（组 4／5）。**注**：本体的 `SimulatedCombatState.ForceStunnedMove` / `ForceMonsterMove` 已经存在且适配层可直呼（publicizer），所以「强制改行动」不需要新登记点，缺的是这几个 Power 的镜像与它自己的分支 |
-| 一 | `Lagavulin` | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
+| 一 | ~~`Lagavulin`~~（已适配 §2.39） | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
 | 二 | ~~`BronzeOrb`~~（已适配 §2.32） |
 | 二 | ~~`GremlinLeader`~~（已适配 §2.35） | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |

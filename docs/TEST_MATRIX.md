@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第一幕精英拉瓦格林（`Lagavulin`）与本体 VeryEarly 回合末入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `BeforeSideTurnEndMirrors.RegisterVeryEarly(Type, …)`
+  与对应的 `SealVeryEarly`、`InvokeVeryEarly` 里的 Seal；适配里 `BeyondBranchResolvers.Lagavulin`
+  （无 RNG，读四个标量与睡眠 Power 是否存在）、四个状态成员与 `DebuffAmount` 静态数值成员、
+  三个行动效果（SLEEP/ATTACK 计数、DEBUFF 的负敏捷与力量）、`AsleepLagavulinPower` 的四条钩子
+  （受伤唤醒＝摘金属化＋置醒＋`ForceStunnedMove(owner,"ATTACK")`＋移除自己；回合开始的第 1 回合格挡；
+  **VeryEarly** 摘金属化；常规回合末减层与自然唤醒）与四条 `RequireOverride` 全部在场；
+  两份部署产物与工作区构建哈希逐字节相同（核心 6,296,576 B、AFTP 99,840 B）。
+- 为什么单独要一个 VeryEarly 入口：源码在 VeryEarly 摘金属化、同一回合末的 Early 阶段金属化会给格挡；
+  合成一个阶段就会多给一次格挡——阶段顺序本身是语义。
+- **未验证**：没有在游戏内打过「拉瓦格林」遭遇，睡眠—唤醒两条路径、负数值、第 1 回合补格挡与四处阶段
+  顺序都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕瞬逝者（`Transient`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

@@ -53,6 +53,7 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FIRST_MOVE_BRANCH", ByrdFirstMove);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FLYING_BRANCH", ByrdFlying);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Nemesis", "MOVE_BRANCH", Nemesis);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Lagavulin", "MAIN_BRANCH", Lagavulin);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -60,7 +61,7 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis"];
+         "Byrd", "Nemesis", "Lagavulin"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -78,6 +79,7 @@ internal static class BeyondBranchResolvers
         ("GremlinLeader", "MOVE_BRANCH"),
         ("Byrd", "FIRST_MOVE_BRANCH"),
         ("Byrd", "FLYING_BRANCH"),
+        ("Lagavulin", "MAIN_BRANCH"),
     ];
 
     /// <summary>
@@ -512,6 +514,40 @@ internal static class BeyondBranchResolvers
             return "SCYTHE";
         }
         return "TRI_ATTACK";
+    }
+
+    /// <summary>
+    /// Lagavulin.SelectNextMove（分支 Id 是 <c>MAIN_BRANCH</c>）：**一次 RNG 都不抽**——还没醒且身上
+    /// 还挂着睡眠 Power ⇒ SLEEP；`StartsAwake` 且行动历史为空 ⇒ DEBUFF；减益计数 ≥ 2 ⇒ DEBUFF；
+    /// 最近连出两次 ATTACK ⇒ DEBUFF；否则 ATTACK。
+    /// </summary>
+    /// <remarks>
+    /// 只读模拟状态（`_isAwake`／`_debatTurnCount`… 与睡眠 Power 是否存在）与行动历史，不写状态，
+    /// **已声明为纯读取**。`StartsAwake` 是**遭遇**决定的整场固定值（另一个遭遇
+    /// <c>DeadAdventurerLagavulin</c> 会把新实例的 `StartsAwake` 置真），根捕获时已播种。
+    /// </remarks>
+    private static string Lagavulin(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = rng;
+        _ = simulator;
+        bool asleep = combat.EffectivePowers().Any(power =>
+            power.Amount > 0
+            && ReferenceEquals(power.Owner, monster.Creature)
+            && string.Equals(power.GetType().Name, "AsleepLagavulinPower", StringComparison.Ordinal));
+        if (!combat.GetMonsterBool(monster.Creature, "_isAwake") && asleep)
+            return "SLEEP";
+        if (combat.GetMonsterBool(monster.Creature, "_startsAwake") && log.Count == 0)
+            return "DEBUFF";
+        if (combat.GetMonsterInt(monster.Creature, "_debuffTurnCount") >= 2)
+            return "DEBUFF";
+        return LastTwoMoves(log, "ATTACK") ? "DEBUFF" : "ATTACK";
     }
 
     /// <summary>

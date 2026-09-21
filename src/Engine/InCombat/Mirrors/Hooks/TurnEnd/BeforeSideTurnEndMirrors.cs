@@ -40,6 +40,37 @@ internal static class BeforeSideTurnEndMirrors
     private static readonly Registry Registry = CreateRegistry();
     private static readonly object RegistrationLock = new();
     private static bool _earlySealed;
+    private static bool _veryEarlySealed;
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <c>BeforeSideTurnEndVeryEarly</c> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="RegisterEarly"/> 分成两个入口是有意的：阶段顺序本身是语义的一部分
+    /// （往昔之章的睡眠 Power 必须在 Early 之前把金属化摘掉，否则那一回合会多给一次格挡）。
+    /// </remarks>
+    public static void RegisterVeryEarly(
+        Type modelType,
+        Action<AbstractModel, BeforeSideTurnEndMirrorContext> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("回合结束镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_veryEarlySealed)
+                throw new InvalidOperationException("BeforeSideTurnEndVeryEarly 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.Register(VeryEarlyRegistry, modelType, handler);
+        }
+    }
+
+    private static void SealVeryEarly()
+    {
+        if (Volatile.Read(ref _veryEarlySealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _veryEarlySealed, true);
+    }
 
     /// <summary>
     /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.BeforeSideTurnEndEarly"/> 的预测实现。
@@ -74,6 +105,7 @@ internal static class BeforeSideTurnEndMirrors
 
     public static void InvokeVeryEarly(AbstractModel listener, BeforeSideTurnEndMirrorContext context)
     {
+        SealVeryEarly();
         VeryEarlyRegistry.Invoke(listener, context);
     }
 

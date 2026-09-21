@@ -46,7 +46,11 @@ internal static class BeyondMoveEffects
         "Byrd",
         "Nemesis",
         "Transient",
+        "Lagavulin",
     ];
+
+    /// <summary>AFTP 自己的 <c>AsleepLagavulinPower</c>（睡着的拉瓦格林）与它的金属化。</summary>
+    private static Type _asleepLagavulinType = null!;
 
     /// <summary>AFTP 的 <c>FadingPower</c>／<c>ShiftingPower</c>／<c>ShiftingStrengthDownPower</c>（第三幕瞬逝者）。</summary>
     private static Type _fadingPowerType = null!;
@@ -186,6 +190,11 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("FadingPower", "BeforeSideTurnEndEarly", 3);
         _ = AfpReflection.RequireOverride("ShiftingPower", "AfterDamageReceived", 6);
         _transientIncrementDamage = AfpReflection.RequireConst("Transient", "IncrementDmg", 10);
+        _asleepLagavulinType = AfpReflection.RequireType("ActsFromThePast.AsleepLagavulinPower");
+        _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "AfterDamageReceived", 6);
+        _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "BeforeSideTurnStart", 4);
+        _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "BeforeSideTurnEndVeryEarly", 3);
+        _ = AfpReflection.RequireOverride("AsleepLagavulinPower", "AfterSideTurnEnd", 3);
     }
 
     public static void RegisterAll()
@@ -427,6 +436,199 @@ internal static class BeyondMoveEffects
         // ShiftingPower.AfterDamageReceived：挨到任何真伤害就按 TotalDamage 给自己叠一层负数临时力量
         // （ShiftingStrengthDownPower，TemporaryStrengthPower 的子类；核心按运行时类型的施加入口已存在）。
         AfterDamageReceivedMirrors.Register(_shiftingPowerType, ShiftingPowerDamageReceived);
+
+        // --- 拉瓦格林（Lagavulin，第一幕精英） ---
+        // 开场：StartsAwake 时直接醒着；否则挂 8 层 AFTP MetallicizePower（镜像早已在 CityHooks）与
+        // 3 层 AsleepLagavulinPower（都在 AfterAddedToRoom，已在根里）。分支读的四个标量都进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers(
+            "Lagavulin",
+            "_isAwake",
+            "_debuffTurnCount",
+            "_sleepTurnCount",
+            "_startsAwake");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Lagavulin", "DebuffAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Lagavulin", "SLEEP", LagavulinSleep);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Lagavulin", "ATTACK", LagavulinAttack);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Lagavulin", "DEBUFF", LagavulinDebuff);
+        // AsleepLagavulinPower 的四条钩子（它自己有 BeforeSideTurnStart／VeryEarly／常规回合末／受伤唤醒）。
+        AfterDamageReceivedMirrors.Register(_asleepLagavulinType, AsleepLagavulinDamageReceived);
+        ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("AsleepLagavulinPower", AsleepLagavulinTurnStart);
+        BeforeSideTurnEndMirrors.RegisterVeryEarly(_asleepLagavulinType, AsleepLagavulinTurnEndVeryEarly);
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("AsleepLagavulinPower", AsleepLagavulinTurnEnd);
+    }
+
+    /// <summary>Lagavulin.Sleep：睡眠计数 +1（台词与音效不在适配范围）。</summary>
+    private static bool LagavulinSleep(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(
+            move.Owner,
+            "_sleepTurnCount",
+            combat.GetMonsterInt(move.Owner, "_sleepTurnCount") + 1);
+        return true;
+    }
+
+    /// <summary>Lagavulin.Attack：减益计数 +1（攻击本身由通用攻击循环按意图结算）。</summary>
+    private static bool LagavulinAttack(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(
+            move.Owner,
+            "_debuffTurnCount",
+            combat.GetMonsterInt(move.Owner, "_debuffTurnCount") + 1);
+        return true;
+    }
+
+    /// <summary>
+    /// Lagavulin.Debuff：把减益计数清零，再给每个活着的目标 <c>DebuffAmount</c> 点敏捷与力量（源码是
+    /// **负数**，A9+ -2／否则 -1）。
+    /// </summary>
+    private static bool LagavulinDebuff(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(move.Owner, "_debuffTurnCount", 0);
+        int amount = combat.GetMonsterStaticInt(move.Owner, "DebuffAmount");
+        if (simulator.State.GetCreature(player).IsAlive)
+        {
+            combat.Apply<DexterityPower>(player, amount, move.Owner);
+            combat.Apply<StrengthPower>(player, amount, move.Owner);
+        }
+        return true;
+    }
+
+    /// <summary>AFTP 金属化在持有者身上的层数（没有则 0）。</summary>
+    private static int MetallicizeAmountOn(SimulatedCombatState combat, Creature owner)
+    {
+        foreach (PowerModel power in combat.EffectivePowers())
+        {
+            if (ReferenceEquals(power.Owner, owner)
+                && power.Amount > 0
+                && string.Equals(power.GetType().Name, "MetallicizePower", StringComparison.Ordinal))
+            {
+                return power.Amount;
+            }
+        }
+        return 0;
+    }
+
+    /// <summary>把持有者身上 AFTP 的金属化摘掉（层数归零）。</summary>
+    private static void RemoveMetallicize(SimulatedCombatState combat, Creature owner)
+    {
+        foreach (PowerModel power in combat.EffectivePowers())
+        {
+            if (ReferenceEquals(power.Owner, owner)
+                && power.Amount > 0
+                && string.Equals(power.GetType().Name, "MetallicizePower", StringComparison.Ordinal))
+            {
+                combat.SetPowerAmount(power, 0);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// AFTP <c>AsleepLagavulinPower.AfterDamageReceived</c>：持有者挨到**非零**未被格挡伤害时——
+    /// 摘掉金属化、把拉瓦格林唤醒（<c>WakeUpFromDamage</c>＝置醒 ＋ 眩晕到 ATTACK）、再把自己移除。
+    /// </summary>
+    private static void AsleepLagavulinDamageReceived(
+        AbstractModel model,
+        AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner || context.Result.UnblockedDamage == 0)
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+        {
+            throw new PredictionUnsupportedException("睡眠缺少可写的预测状态。");
+        }
+        RemoveMetallicize(combat, power.Owner);
+        combat.SetMonsterBool(power.Owner, "_isAwake", true);
+        combat.ForceStunnedMove(power.Owner, "ATTACK");
+        ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("睡眠缺少可写的预测状态。");
+        effects.SetPowerAmount(power, 0);
+    }
+
+    /// <summary>
+    /// AFTP <c>AsleepLagavulinPower.BeforeSideTurnStart</c>：第 1 回合、玩家侧开始时，若持有者还有金属化，
+    /// 就按它的层数补一次 <c>Unpowered</c> 格挡（源码判据是 `side == Player &amp;&amp; RoundNumber == 1`）。
+    /// </summary>
+    private static void AsleepLagavulinTurnStart(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power)
+    {
+        if (combat.CurrentSide != CombatSide.Player || combat.RoundNumber != 1)
+            return;
+        int amount = MetallicizeAmountOn(combat, power.Owner);
+        if (amount > 0)
+            simulator.GainBlock(power.Owner, amount, ValueProp.Unpowered);
+    }
+
+    /// <summary>
+    /// AFTP <c>AsleepLagavulinPower.BeforeSideTurnEndVeryEarly</c>：自己那一方回合末的**最早**阶段，
+    /// 睡眠只剩最后一层时先把金属化摘掉（否则同一回合末的 Early 阶段还会多给一次格挡）。
+    /// </summary>
+    private static void AsleepLagavulinTurnEndVeryEarly(
+        AbstractModel model,
+        BeforeSideTurnEndMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Side != power.Owner.Side || power.Amount > 1)
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+        {
+            throw new PredictionUnsupportedException("睡眠缺少可写的预测状态。");
+        }
+        RemoveMetallicize(combat, power.Owner);
+    }
+
+    /// <summary>
+    /// AFTP <c>AsleepLagavulinPower.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末减 1 层；
+    /// 减到 0 就把拉瓦格林自然唤醒（置醒，不眩晕）。
+    /// </summary>
+    private static void AsleepLagavulinTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = simulator;
+        _ = participants;
+        if (side != power.Owner.Side)
+            return;
+        ICombatPredictionEffectSink effects = combat as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("睡眠缺少可写的预测状态。");
+        int remaining = power.Amount - 1;
+        effects.SetPowerAmount(power, remaining);
+        if (remaining <= 0)
+            combat.SetMonsterBool(power.Owner, "_isAwake", true);
     }
 
     /// <summary>

@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第一幕精英拉瓦格林（`Lagavulin`）与本体 VeryEarly 回合末入口（2026-09-21）
+
+- 本体补了 `BeforeSideTurnEndMirrors.RegisterVeryEarly(模型类型名, handler)`（与 `RegisterEarly` 各自 Seal、
+  各自入口）：它的睡眠 Power 在 VeryEarly 摘金属化，而同一回合末的 Early 阶段金属化会按层数给格挡，
+  把两者合成一个阶段就会多给一次格挡——阶段顺序本身是语义。
+- 拉瓦格林：分支 `MAIN_BRANCH` **一次 RNG 都不抽**（睡眠 Power 还在且没醒 ⇒ SLEEP；`StartsAwake` 且行动
+  历史为空 ⇒ DEBUFF；减益计数 ≥ 2 或最近连出两次 ATTACK ⇒ DEBUFF；否则 ATTACK），读四个标量、声明为纯读取；
+  SLEEP/ATTACK 各自记计数，DEBUFF 清零计数并给玩家**负**敏捷与力量（`DebuffAmount`）；睡眠 Power 四条钩子
+  全部登记（受伤唤醒＝摘金属化＋置醒＋`ForceStunnedMove` 到 ATTACK＋移除自己；回合开始第 1 回合格挡；
+  VeryEarly 摘金属化；常规回合末减层与自然唤醒）。`Lagavulin` 没有 `BeforeDeath` 重写，因此没有死亡钩子。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.39。
 ## 未发布：第三幕瞬逝者（`Transient`）（2026-09-21）
 
 - 本批**没有改动本体**：§4.4 原先把「按 `Type` 施加第三方 `TemporaryStrengthPower` 子类」列为缺能力，

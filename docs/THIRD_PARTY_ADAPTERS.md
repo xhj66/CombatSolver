@@ -508,6 +508,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterSideTurnEndPower(Power 类型名, handler)` | 第三方 Power 重写的**常规（非 Late）`AfterSideTurnEnd`**。派发在 `EndTurnPowerSupport.TriggerRegular` 那个原版 `switch` 之后、同一轮循环内；没登记的类型与原来一样什么都不做，见下 |
 | `RegisterSideTurnEndModel(模型类型名, handler)` | 第三方**非 Power 模型**（怪物这类）重写的常规（非 Late）`AfterSideTurnEnd`。派发在敌人侧回合末既有链路的末端、晚期 `AfterSideTurnEndLate` 之前。**玩家侧模型尚未开放**（见第 6 节） |
 | `RegisterSideTurnStartPower(Power 类型名, handler)` | 第三方 Power 重写的 `BeforeSideTurnStart`。派发在 `TurnStartPowerSupport.TriggerBeforeSideTurnStart` 里、原版那些按类型写死的块之后；没登记的类型与原来一样什么都不做，见下 |
+| `BeforeSideTurnEndMirrors.RegisterVeryEarly(模型类型名, handler)` | 第三方模型重写的 `BeforeSideTurnEndVeryEarly`（回合末的**最早**阶段）。与 `RegisterEarly` 分成两个入口是有意的：阶段顺序本身是语义的一部分（往昔之章的睡眠 Power 必须在这之前把金属化摘掉，否则同一回合末会多给一次格挡） |
 | `RegisterStolenCardPower(Power 类型名, hasStolenCard)` | 第三方**偷牌** Power：终局的「未追回战利品」与「持有者死亡时核销」原先只认原版 `SwipePower`（偷牌）与 `ThieveryPower`／`HeistPower`（偷金币）。不登记的话，被偷的牌会一直算作丢失（界面与排序都会错）；`hasStolenCard(simulator, power)` 由登记方回答「这个实例现在扣着牌吗」 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
