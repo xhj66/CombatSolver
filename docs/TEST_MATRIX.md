@@ -30,6 +30,15 @@
   这个钩子（模拟里死掉的敌人一律移出阵容）；对单体精英战斗只影响「阵容里是否留着尸体」，
   原版实验体同样如此。记录在 [AFTP 状态](AFTP_ACT4HEART_STATUS.md) §2.17。
 - 结构门禁仍未执行（本机没有 PowerShell 7）。
+- 同轮侦察结论（**不是**验证通过）：`TorchHead` 逐个成员读完，**不需要任何登记**——单一
+  `SingleAttackIntent(7)` 自循环行动已在常量攻击表里，`AfterAddedToRoom` 只挂一个 `Died` 事件
+  （另一端只读自己的 `_alive`）与一串火焰粒子（节点/Tween/音效/`Rng.Chaotic`）。它是第二只
+  「零登记即完整」的怪物，记录在 [AFTP 状态](AFTP_ACT4HEART_STATUS.md) §2.18；**未在游戏内打过
+  「收集者」遭遇**。
+- 同轮侦察还给出了第二幕剩余七只（`BronzeAutomaton`／`BronzeOrb`／`Collector`／`GremlinLeader`／
+  `ShelledParasite`／`SnakePlant`／`Byrd`）的确切缺口与各自需要先补的本体能力，写入
+  [AFTP 状态](AFTP_ACT4HEART_STATUS.md) §4.2。这七只**都还没有适配**，本轮没有任何一条关于它们的
+  运行时证据。
 
 ## 未发布：第二幕首领与精英（Chosen／Champ）（2026-09-21）
 

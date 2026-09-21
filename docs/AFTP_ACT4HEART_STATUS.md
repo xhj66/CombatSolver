@@ -562,6 +562,22 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 
 ---
 
+### 2.18 第二幕：火炬头（`TorchHead`，零登记即完整）
+
+`TorchHead` 整只怪只有一个行动，而且**不需要任何登记**（与第一幕的 `Pointy` 同型，第二、三幕里的
+第二只）：
+
+| 部位 | 源码（`ActsFromThePast.TorchHead`） | 是否需要适配 |
+| --- | --- | --- |
+| 行动状态机 | 单个 `MoveState("TACKLE", …, SingleAttackIntent(7))`，`FollowUpState` 指向自己，初始状态也是它 | 攻击已在 `LaterActsStableAttacks`（`TorchHead.TACKLE`＝`SingleAttackIntent(7)`） |
+| `AfterAddedToRoom` | `Creature.Died += OnDeath`（把 `_alive` 置假）＋ `StartFireLoop()`：往骨架上挂一串火焰粒子 | **不需要**：`_alive` 只被那个粒子循环读（`SpawnFireParticle` 里的早退），`Died` 事件的另一头也是它；整条链只有节点、Tween、音效与 `Rng.Chaotic`（外观流，不是九条战斗流之一） |
+| 分支 / 标量状态 / 行动效果 / Power | 都没有 | — |
+
+按 §4.1 的五项验收口径，它是第二只「五项都不需要」的怪物：能算出的路线就是完整的路线。
+**未验证**：没有在游戏内打过「收集者」遭遇（火炬头只出现在那里），这条结论来自逐个成员的反编译阅读。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -804,7 +820,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
-| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整） | SnakeDagger |
+| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | SnakeDagger |
 | 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | Repulsor、Exploder、Spiker、OrbWalker |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
@@ -837,6 +853,25 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 **因此「能出路线」不能当成「适配好了」。** 逐个怪物的验收标准仍然是 §4.1 那五项
 （分支 / 状态 / 行动效果 / 力量镜像 / 常量攻击）都核对完，而不是「求解器没报错」。
+
+### 4.2 第二幕剩余八只的确切缺口（侦察结论，2026-09-21）
+
+逐类反编译读完之后，第二幕剩下这八只**各自卡在什么地方**已经明确（第一幕的 `SlaverRed`／
+`Hexaghost`／`Guardian`／`Lagavulin`、第三幕 17 只同理待办）。按「要先补哪个本体能力」排列：
+
+| 怪物 | 需要的本体能力 | 该怪自己要写的部分 |
+| --- | --- | --- |
+| `BronzeAutomaton` | 无 | `MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成 `BronzeOrb`，`minion: true`）+ `BOOST`（`GainBlock(BlockAmount, Move)` + `StrAmount` 力量）；`BeforeDeath` 只有震屏与「杀掉存活队友」——后者是**原版规则**（`CreatureCmd.KillWithoutCheckingWinCondition`：主敌死亡时杀掉存活的 secondary 队友），核心已镜像，因此这条登记为忽略 |
+| `BronzeOrb` | 无（但工作量大） | `MOVE_BRANCH`（写 `_usedStasis`）+ `SUPPORT_BEAM`（给存活的正牌自动机 12 格挡）+ `STASIS`（洗牌抽/弃牌堆、偷最高稀有度的牌、`StasisPower.Capture`）＋ `StasisPower` 镜像（私有字段存被偷的牌，死亡时归还）——**被偷牌是对象引用**，`PowerHiddenStateMirrors` 只存标量，需要一个能随 Fork 重映射的预测状态 |
+| `GremlinLeader` | 「随从随首领死亡而逃跑」：小鬼的 `AfterAddedToRoom` 订阅了 `GremlinLeaderHelper` 的 C# 事件 | `MOVE_BRANCH`＋`NumAliveGremlins`＋`RALLY`（按槽位召唤随机小鬼）＋`ENCOURAGE`（给队友格挡与力量）＋`STAB` |
+| `Collector` | 自身复活（`REVIVE`）＋随从 | `_turnsTaken`／`_ultUsed`／`_initialSpawn`＋`SPAWN`＋`MEGA_DEBUFF`＋`BUFF`＋`REVIVE`＋`BeforeDeath` |
+| `ShelledParasite` | 「强制改写当前行动 + 眩晕」的第三方入口（`SetMoveImmediate` 系列） | 分支（带 `min` 参数的重载）＋`FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED`＋`BeforeDeath` |
+| `SnakePlant` | **`AfterSideTurnEnd`（非 Late）分发点** | `MOVE_BRANCH`（只读，可声明纯读取）＋`SPORES`（2 破甲 + 2 虚弱）＋`MalleablePower` 镜像（`ModifyDamage`／`AfterDamageReceived` 累加＋`AfterAttack` 给格挡＋回合末清零与回滚层数，私有 `_pendingBlock` 要进指纹） |
+| `Byrd` | `BeforeSideTurnStart`（非 Late）分发点＋第三方 `ModifyDamageMultiplicative` 入口＋`AfterRemoved`（Power 被移除）入口 | `FIRST_MOVE_BRANCH`／`FLYING_BRANCH`（都只读，可声明纯读取）＋`CAW`（1 力量）＋`GO_AIRBORNE`（按玩家人数施加 `FlightPower`）＋`FlightPower` 镜像（飞行时受到的 `Move` 伤害 ×0.5、按未格挡命中数减层、层数在回合开始回滚、归零被移除时把 Byrd 打落到 `HEADBUTT` 眩晕） |
+
+结论：**第二幕剩下这八只里没有一只是「零登记」或纯登记活的**，`BronzeAutomaton` 与 `BronzeOrb` 是同一场
+遭遇、必须一起做；`TorchHead`（§2.18）已经完整。这个顺序也说明为什么先把「动态攻击值」
+（§2.17）这类**不依赖新阶段**的通用能力补齐更划算。
 
 ---
 
