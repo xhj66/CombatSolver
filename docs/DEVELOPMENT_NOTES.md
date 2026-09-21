@@ -12,6 +12,19 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：本体新增「常规回合末（非 Late）AfterSideTurnEnd」第三方登记（2026-09-21）
+
+- 求解器的回合末一直分两段，但只有**晚期**那段有第三方入口（`AfterSideTurnEndLateMirrors`）；原版那一批
+  常规效果按类型写死在 `EndTurnPowerSupport.TriggerRegular` 的 `switch` 里，第三方 Power 落在
+  `switch` 之外——不报错、不算未支持，但整场预测都少一块（往昔之书的 `MalleablePower` 回合末清零、
+  `StrengthUpPower` 每回合加力量、`Nemesis` 自身的回合末重写都卡在这里）。
+- 新增 `ThirdPartyAdapterRegistry.RegisterSideTurnEndPower(Power 类型名, handler)`：派发点在同一个
+  `switch` **之后、同一轮循环内**（相对其它 Power 的顺序与源码的模型遍历顺序一致），处理函数读写模拟状态。
+  这条路径**纯新增**：没登记的类型与加之前完全一样，原版与既有第三方内容行为不变。
+  仍然封闭的是玩家侧非 Power 的常规回合末特化与 `BeforeSideTurnStart`（`PlatedArmorPower`／`FlightPower`
+  要它），文档已同步。
+- 本轮只落入口，AFTP 侧第一家（`SnakePlant` 的 `MalleablePower`、`OrbWalker` 的 `StrengthUpPower`）下一轮接。
+
 ## 未发布：第三幕尖刺者（`Spiker`）（2026-09-21）
 
 - 第三幕再补一只不需要新本体能力的：`Spiker`。开场的 `StartingThorns`（A9+ 7／否则 4）层荆棘由

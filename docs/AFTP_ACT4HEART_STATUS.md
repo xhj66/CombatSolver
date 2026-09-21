@@ -871,11 +871,14 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 9 | 非战斗内容（事件／遗物同名类，**不是怪物**） | — | — | TorchHead 之外的条目见 `_build/_aftp_model_hooks.txt` |
 
 **已经补上的核心能力**：动态攻击值登记（`RegisterMonsterAttackValues`，见 §2.17；往昔之书是第一家，
-第五幕的 `Maw.NOMNOMNOM_MULTI`、`Hexaghost.DIVIDER` 这类 `Dynamic*AttackIntent` 之后沿用同一条路）。
+第五幕的 `Maw.NOMNOMNOM_MULTI`、`Hexaghost.DIVIDER` 这类 `Dynamic*AttackIntent` 之后沿用同一条路）、
+**第三方 Power 的常规（非 Late）`AfterSideTurnEnd` 登记**（`RegisterSideTurnEndPower`，派发在
+`EndTurnPowerSupport.TriggerRegular` 的原版 `switch` 之后；解锁 `SnakePlant` 的 `MalleablePower`、
+`OrbWalker` 的 `StrengthUpPower`、`Nemesis` 与 `Hexaghost`，见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13）。
 
 **求解器本体仍要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
-② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ `BeforeSideTurnStart` 与
-`AfterSideTurnEnd`（非 Late）两个阶段分发点（组 6）；④ 手牌病症与可打出性镜像（组 7）；
+② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ `BeforeSideTurnStart` 分发点（**非 Late 的
+`AfterSideTurnEnd` 已经在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7）；
 ⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，Guardian/Lagavulin/ShelledParasite/AwakenedOne）。
 每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。

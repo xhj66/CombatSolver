@@ -1,3 +1,4 @@
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.MonsterMoves;
@@ -77,6 +78,24 @@ internal static class ThirdPartyAdapterRegistry
         PowerModel power,
         IReadOnlyList<Creature> participants);
 
+    /// <summary>
+    /// 第三方 Power 重写的**非 Late** <c>AbstractModel.AfterSideTurnEnd</c> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 求解器的回合末分两段：这一条（常规）与 <c>AfterSideTurnEndLate</c>（晚期，见
+    /// <c>AfterSideTurnEndLateMirrors</c>）。原版那一批常规效果按类型写死在
+    /// <c>EndTurnPowerSupport.TriggerRegular</c> 的 <c>switch</c> 里，第三方类型落在 <c>switch</c> 之外，
+    /// 结果是「回合末该发生的事永远不发生」——数值不会报错，但整场预测都少一块。
+    /// 需要它的适配 Mod 在这里登记；派发点是同一个 <c>switch</c> 之后、**同一轮循环内**，
+    /// 所以相对其它 Power 的先后顺序与源码的模型遍历顺序一致。
+    /// </remarks>
+    public delegate void SideTurnEndPowerHandler(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants);
+
     private static readonly Dictionary<(string Type, string Id), MonsterMoveEffectHandler> MoveEffectTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterBeforeAttackHandler> MoveBeforeAttackTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterBranchResolver> BranchResolverTable = [];
@@ -84,6 +103,7 @@ internal static class ThirdPartyAdapterRegistry
     private static readonly Dictionary<string, string[]> StaticIntMemberTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, string[]> ScalarStateMemberTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, TurnStartPowerHandler> TurnStartPowerTable = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, SideTurnEndPowerHandler> SideTurnEndPowerTable = new(StringComparer.Ordinal);
     private static readonly HashSet<string> AllowedCombatSubscriberTypes = new(StringComparer.Ordinal);
     private static readonly HashSet<(string Type, string Id)> StableAttackTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterAttackValueResolver> DynamicAttackTable = [];
@@ -151,6 +171,22 @@ internal static class ThirdPartyAdapterRegistry
 
     public static bool TryGetTurnStartPower(string powerTypeName, out TurnStartPowerHandler handler)
         => TurnStartPowerTable.TryGetValue(powerTypeName, out handler!);
+
+    /// <summary>
+    /// 登记第三方 Power 自己的**常规回合末**（非 Late 的 <c>AfterSideTurnEnd</c>）预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 只登记逐行反编译核对过的实现：处理函数按源码顺序读写**模拟状态**（<c>combat</c> 的层数、格挡、
+    /// 怪物标量），需要伤害/抽牌等可见效果时走 <c>simulator</c> 的对应入口。
+    /// 没登记的类型与今天完全一样（不做任何事），所以这个入口不会改变原版与既有第三方内容的行为。
+    /// </remarks>
+    public static void RegisterSideTurnEndPower(string powerTypeName, SideTurnEndPowerHandler handler)
+        => SideTurnEndPowerTable[powerTypeName] = handler;
+
+    public static bool TryGetSideTurnEndPower(
+        string powerTypeName,
+        out SideTurnEndPowerHandler handler)
+        => SideTurnEndPowerTable.TryGetValue(powerTypeName, out handler!);
 
     // === 怪物行动效果 ===
 

@@ -1,5 +1,21 @@
 # CombatSolver 测试清单
 
+## 未发布：本体新增「常规回合末（非 Late）AfterSideTurnEnd」第三方登记（2026-09-21）
+
+- 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；已部署产物反编译核对：
+  `ThirdPartyAdapterRegistry.SideTurnEndPowerHandler` 委托、`SideTurnEndPowerTable`（`StringComparer.Ordinal`）、
+  `RegisterSideTurnEndPower` / `TryGetSideTurnEndPower` 都在场；派发点在 `EndTurnPowerSupport.TriggerRegular`
+  的原版 `switch` **之后、同一轮循环内**（`handler(simulator, combat, power, side, participantSet)`，
+  随后照常检查 `HasPendingChoice`）也在场；核心部署产物与工作区构建哈希逐字节相同（6,292,480 B）。
+- 语义边界：这条路径**纯新增**——未登记的 Power 类型与加这个入口之前完全一样（原版 `switch` 之后
+  不做任何事），因此不改变原版或既有第三方内容的行为；`side == power.Owner.Side` 这类判据由登记方
+  按源码照抄。仍然封闭的是玩家侧非 Power 的特化、`BeforeSideTurnStart`（文档已同步
+  [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 与 [AFTP 状态](AFTP_ACT4HEART_STATUS.md) §4.1）。
+- 本轮**没有**用户：AFTP 侧第一家（`SnakePlant` 的 `MalleablePower`／`OrbWalker` 的 `StrengthUpPower`）
+  下一轮落地。因此**未验证**：没有在游戏内跑过任何依赖这条分发的战斗，也没有最小差分夹具；
+  本轮证据只到「入口与派发点在已部署产物里存在」。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：第三幕尖刺者（`Spiker`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

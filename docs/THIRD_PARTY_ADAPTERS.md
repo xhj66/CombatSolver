@@ -503,6 +503,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `MonsterSpawnSupport.SpawnByType(…, Type 怪物类型, …)` | 按**运行时类型**生成第三方怪物（召唤／分裂／复活）。见下 |
 | `MonsterRngSupport.State(simulator, monster)` | 怪物自己那条私有 RNG 流（`MonsterModel.Rng`）在预测里的分支副本，提供 `NextInt` / `NextFloat` / `NextItem` / `Draws`。见下 |
 | `RegisterTurnStartPower(Power 类型名, handler)` | 第三方 Power 在自己那一方回合开始时的状态重置 |
+| `RegisterSideTurnEndPower(Power 类型名, handler)` | 第三方 Power 重写的**常规（非 Late）`AfterSideTurnEnd`**。派发在 `EndTurnPowerSupport.TriggerRegular` 那个原版 `switch` 之后、同一轮循环内；没登记的类型与原来一样什么都不做，见下 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
 #### 第三方分支状态的选择函数：默认**不在预测里调用**
@@ -652,6 +653,34 @@ combat.SetMonsterInt(move.Owner, "adapter_your_mod_rng_draws", rng.Draws);
    `MonsterRngSupport.VerifyShape()` 钉住 `MonsterModel.Rng` 这个公开访问点。
    **已知局限**：状态是首次用到时才从实机拷一份，不是根捕获时冻结的；同一只怪在同一回合真的行动过之后
    再开始搜索，起点会偏后——这个局限与心脏盾兵球位的既有实现一致。
+
+#### 常规回合末（非 Late）的 `AfterSideTurnEnd`
+
+求解器的回合末分两段：**常规**（`AbstractModel.AfterSideTurnEnd`）与**晚期**
+（`AfterSideTurnEndLate`，走 `AfterSideTurnEndLateMirrors`）。原版那一批常规效果按类型写死在
+`EndTurnPowerSupport.TriggerRegular` 的 `switch` 里，第三方类型落在 `switch` 之外——结果是
+「回合末该发生的事永远不发生」：不报错、不算未支持，但整场预测都少一块。这条路径现在对第三方开放：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterSideTurnEndPower(
+    "你的Power类型名",
+    static (simulator, combat, power, side, participants) =>
+    {
+        if (side != power.Owner.Side)      // 与源码同一个判据
+            return;
+        combat.Apply<StrengthPower>(power.Owner, combat.GetAmount<YourPowerType>(power.Owner), power.Owner);
+    });
+```
+
+三条纪律：
+
+1. **判据照抄源码**：`side == power.Owner.Side` 这类判断、层数读写顺序、以及「先清账再加值」的先后
+   都要与反编译一致；处理函数跑在**同一轮循环内**，所以它相对其它 Power 的位置与源码的模型遍历顺序相同。
+2. **只读写模拟状态**：层数用 `combat.GetAmount` / `combat.SetPowerAmount` / `combat.Apply`，
+   需要伤害、抽牌等可见效果时走 `simulator` 的对应入口（与其它镜像同一条边界）。
+3. **没登记就不做任何事**：这条入口是**纯新增**——未登记的类型与加这个入口之前完全一样，
+   因此它不会改变原版或既有第三方内容的行为。**仍然封闭**的是玩家侧非 Power 的常规回合末特化
+   （`BeforeSideTurnEnd` 系列之外的抽牌/手牌清理那一批）与 `BeforeSideTurnStart`（见第 6 节）。
 
 #### 阶段缺口要显式记下来
 
@@ -897,7 +926,7 @@ ThirdPartyAdapterRegistry.RegisterMonsterAttackValues(
 | `NativeModelCloneConcurrency` | 预测克隆只放行已核对原版阶段、原版变量及 BaseLib/Ritsu 稀疏元数据复制补丁组合的普通原版卡牌；附魔/灾厄、第三方模型/变量和未知补丁保留原锁。Power 只放行已物化原版变量、继承默认克隆及 InitInternalData 的原版类型，同时核对基阶段与变量 getter 补丁；自定义初始化保持原锁。每个线程最外层模拟隔离域重新核对，不支持求解中安装补丁；原版 MutableClone 保护不变。没有新增外部注册入口 | 精确框架适配 |
 | `RitsuEmptyCapabilityFastPathPatches` | 模拟隔离域的空 capability 集可直接保留原卡牌标签序列；不枚举/复制标签，不缓存分支值。非空贡献者与精确类型默认来源继续框架入口；晚注册刷新来源代次，已物化的空集合仍按框架语义处理。live 不旁路，无新增登记入口 | 精确框架适配 |
 | `DynamicVarCloneMetadataPatches` | 模拟克隆只优化已核对为空默认值的 BaseLib 提示/升级字段与 Ritsu 提示工厂；非空值照常复制，live 调用保持原框架行为。其他附加字段继续原有克隆逻辑，不属于此优化入口 | 精确框架适配 |
-| `CorePowerSupport.TriggerPlayerRegularSideTurnEndEffects`、`FlushPlayerHandAtTurnEnd`、`TurnStartPowerSupport.TriggerAfterPlayerTurnStart`、`SimulatedCombatState.TriggerRelicsAfterPlayerTurnStart` | 常规回合末和部分回合开始效果尚无通用登记；晚期 `AfterSideTurnEndLate` 已开放，见 §2.10。**`AbstractModel.AfterSideTurnEnd`（非 Late）本身没有分发点**，重写它的第三方类型无法建模（心脏适配的 `RegeneratePowerA4h` 就是这种情况，见 §2.13） | 部分开放 |
+| `CorePowerSupport.TriggerPlayerRegularSideTurnEndEffects`、`FlushPlayerHandAtTurnEnd`、`TurnStartPowerSupport.TriggerAfterPlayerTurnStart`、`SimulatedCombatState.TriggerRelicsAfterPlayerTurnStart` | 玩家侧非 Power 的常规回合末特化、玩家侧回合开始的特化与遗物触发尚无通用登记；晚期 `AfterSideTurnEndLate` 已开放（§2.10）。**第三方 Power 的常规（非 Late）`AfterSideTurnEnd` 已开放**：`ThirdPartyAdapterRegistry.RegisterSideTurnEndPower`（§2.13）。仍然没有分发点的是 `AbstractModel.BeforeSideTurnStart`——重写它的第三方类型无法建模（往昔之章的 `PlatedArmorPower`／`FlightPower` 都要它，见 [AFTP 状态](AFTP_ACT4HEART_STATUS.md) §4.2／§4.3） | 部分开放 |
 | `SimulatedCombatState.TryPrepareExtraPlayerTurn` / `TryPrepareLiveExtraPlayerTurn` / `ConsumeExtraTurnSources` | 额外回合的来源硬编码，只认龙涎香和帕尔之眼 | 待做 |
 | `CombatPredictionSimulator.OnPlayWrapper` | 出牌后补抽没有挂载点 | 待做 |
 | `CardChoiceSupport.RemovalPriority` 的排序口径 | 移除类选择按**单卡**估值排，不看牌库其余部分；弃牌那一侧已经是「源牌堆平均值减本牌估值」的相对口径，消耗与转变没有。表现为求解器不会为了压出无限而主动烧牌。起手牌那一层已由 §2.7 打开，相对口径这一层仍然封闭 | 待做 |

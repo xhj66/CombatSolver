@@ -143,6 +143,17 @@ internal static partial class EndTurnPowerSupport
             }
             if (simulator.HasPendingChoice)
                 return false;
+
+            // 第三方登记过「非 Late 的 AfterSideTurnEnd」就在这里跑：与上面那个原版 switch 同一轮循环、
+            // 同一次遍历顺序；未登记的类型与原来一样什么都不做（不改变任何既有行为）。
+            if (ThirdPartyAdapterRegistry.TryGetSideTurnEndPower(
+                    power.GetType().Name,
+                    out ThirdPartyAdapterRegistry.SideTurnEndPowerHandler? sideTurnEnd))
+            {
+                sideTurnEnd(simulator, combat, power, side, participantSet);
+                if (simulator.HasPendingChoice)
+                    return false;
+            }
         }
         foreach (Creature owner in participantSet)
             combat.ResetPowerLifecycleTurn(owner);
