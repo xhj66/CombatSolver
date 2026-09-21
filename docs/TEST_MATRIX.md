@@ -1,5 +1,18 @@
 # CombatSolver 测试清单
 
+## 未发布：意图预览不再调用第三方分支选择函数（2026-09-21）
+
+- 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  `CombatSolver-AFTP` 适配 Release 构建通过，产物反编译核对：
+  `IntentForecaster.RollNext` 在调用 `GetNextState` 前先判 `IsForeignBranchState` 与
+  `IsBranchSelectorInvocationAllowed`，未放行时记 `:第三方分支状态` 并返回 `null`；
+  适配侧 `PureSelectors` 8 条经 `RegisterPureBranchSelector` 登记。
+- **未验证**：本机没有走到第二幕往昔之书的存档/夹具，**没有在游戏内复现过 7×15**，
+  也没有做过「实机 `_stabCount` 在预览前后不变」的直接差分；本次结论来自反编译的调用链
+  （`IntentForecaster.RollNext` → `MonsterState.GetNextState` → `BookOfStabbing.SelectNextMove`
+  → `StabCount++`，段数读同一字段）与构建核对。往昔之章 8 条已声明的分支在预览里的行为与修复前一致。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：AFTP 第一幕的常量构造攻击与 Looter（2026-09-21）
 
 - `StableAttackShapeChecks`：Passed，`ok=6`。命令 `dotnet run --project tools/StableAttackShapeChecks/StableAttackShapeChecks.csproj -c Release`。

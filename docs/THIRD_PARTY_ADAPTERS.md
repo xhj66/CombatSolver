@@ -491,12 +491,45 @@ AfterDeathMirrors.RegisterIgnored(Type modelType);
 |---|---|
 | `RegisterMonsterMoveEffect(怪物类型名, 行动 Id, handler)` | 某个行动的**非攻击部分**（攻击仍由通用攻击循环按意图结算） |
 | `RegisterMonsterBranchResolver(怪物类型名, 分支 Id, resolver)` | 自定义分支状态的下一步选择 |
+| `RegisterPureBranchSelector(怪物类型名, 分支 Id)` | 声明该分支的选择函数是**纯读取**，预测器可以照旧在实机上调用它推演后续回合；见下 |
 | `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |
 | `RegisterStaticIntMembers(怪物类型名, 成员名…)` | 只在根捕获读一次的静态数值 |
 | `RegisterStableAttack(怪物类型名, 行动 Id)` | 该行动的攻击数值在意图构造时即已固定（`MultiAttackIntent(常量, 常量)` 一类），压掉预测器的「动态伤害」误报。**运行期会核对意图形状**，见下 |
 | `RegisterOwnerRemovingMove(怪物类型名, 行动 Id)` | 该行动把**施法者自己移出战斗**（逃跑／脱战）。效果侧由登记方在处理器里调 `CreatureEscaped`，这一条负责让意图预测侧停止给它排后续回合 |
 | `RegisterTurnStartPower(Power 类型名, handler)` | 第三方 Power 在自己那一方回合开始时的状态重置 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
+
+#### 第三方分支状态的选择函数：默认**不在预测里调用**
+
+意图预览（`IntentForecaster`）会从当前行动往后推演十几个回合，它看的还是**实机模型**。原版三种状态
+里它按权重、按冻结选择走；碰到第三方自定义的分支状态时，它原来会直接调
+`MonsterState.GetNextState` —— 也就是**你写在对方程序集里的那个委托**。那个委托跑在实机模型上，
+**可以写实机字段**。往昔之书的 `SelectNextMove` 每次都 `StabCount++`，而它的攻击段数读的正是这个计数：
+
+```csharp
+new DynamicMultiAttackIntent(() => StabDamage, () => StabCount)   // 段数 = 实机 _stabCount
+private string SelectNextMove(...) { ...; StabCount++; return "STAB"; }
+```
+
+后果不是「预览不准」，而是**求解器把玩家正在打的那场战斗改坏了**：一次预览推演 16 个回合就
+`StabCount++` 十几次，游戏自己的意图显示于是变成 7×15，实际结算也照着 7×15 打。
+
+所以现在**默认不调用**：命中未声明的第三方分支状态时，推演在那条怪物上停下、记一条
+`unsupported`（界面显示「预览可能不完整」），绝不拿玩家的战斗去换一个更长的预览。
+
+确实逐行复核过「只读自己的标量字段与实机 `StateLog`、只按源码顺序抽传入的 `rng`、不写实机状态、
+不下命令」的选择函数，可以显式声明放行：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterPureBranchSelector("你的怪物类型名", "你的分支 Id");
+```
+
+声明前必须先登记同一 (怪物, 分支) 的 `RegisterMonsterBranchResolver`——只声明纯读取没有意义，
+搜索侧仍然会拒绝这条分支。两条都登记之后，这条分支在**搜索**里走你的 `resolver`（用模拟状态重算），
+在**预览**里走实机委托（读当前实机值），与适配前后的行为一致。
+
+`RegisterPureBranchSelector` 与 `AfterDeathMirrors.RegisterIgnored` 是同一类「已复核事实」登记：
+挡行为变化的是你自己的复核和你写的自检，不是运行期能判定的性质。
 
 #### 可变的「状态字节」不要直接用冻结的条件分支
 

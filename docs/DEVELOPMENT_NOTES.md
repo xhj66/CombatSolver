@@ -12,8 +12,28 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
-## 未发布：AFTP 第一幕——强盗解锁与「常量构造」攻击登记（2026-09-21）
+## 未发布：意图预览不再调用第三方分支选择函数（2026-09-21）
 
+- 玩家报告：往昔之书的「多重刺击」第一回合显示并打出 7×15，正常应是 7×3。根因是意图预览
+  （`IntentForecaster`）推演后续回合时，对第三方自定义分支状态直接调用了
+  `MonsterState.GetNextState`——那是对方程序集里的委托，跑在**实机模型**上并会写实机字段。
+  往昔之章的 `BookOfStabbing.SelectNextMove` 四条路径都 `StabCount++`，而它的攻击段数正是
+  `DynamicMultiAttackIntent(() => StabDamage, () => StabCount)`；预览一次看 16 个回合
+  （`SolverWeights.SetupValueHorizonTurns`），就把实机计数从入场时的 1 推到 15 上下，
+  于是**游戏自己**的意图与实际结算都变成 7×15。这不是预览不准，是求解器改坏了玩家正在打的那场战斗，
+  违反「不得读取会随实机推进而变化的 live 值，也不得修改真实战斗」。搜索侧的
+  `BranchMonsterStaticSnapshot.Capture` 早就有 `!IsForeignBranchState(...)` 守卫，只有预览漏了。
+- 修法：`IntentForecaster.RollNext` 遇到第三方分支状态**默认不调用**，记一条
+  `unsupported`（`<怪物>.<分支>:第三方分支状态`）并让这条怪物退出推演；确实逐行复核为纯读取的选择函数
+  由适配侧用新增的 `ThirdPartyAdapterRegistry.RegisterPureBranchSelector(怪物类型名, 分支 Id)` 声明放行
+  （登记前必须先有同一 (怪物, 分支) 的 `RegisterMonsterBranchResolver`，只声明一半会被核心拒绝）。
+  往昔之章已声明 8 条复核过的分支，往昔之书、史莱姆分裂等未声明的分支一律不碰。
+- 验证：核心与两个适配 Release 构建 0 error／无编译器警告；产物已反编译核对。**未验证**：
+  没有在游戏内复现过 7×15 的场景（需要一局走到第二幕的往昔之书）。链式证据、未处理的同类点
+  （`GetNextMoveIdFromStateLog`）见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.9，
+  登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+
+## 未发布：AFTP 第一幕——强盗解锁与「常量构造」攻击登记（2026-09-21）
 - 第三方登记点两处收紧/补齐，都只对已登记的第三方内容生效，登记表为空时求解器行为逐字不变。
   `ThirdPartyAdapterRegistry.RegisterStableAttack` 从「登记方说了算」改成**运行期可证伪**：
   `IntentForecaster` 命中第三方登记时还要过 `StableAttackShape.IsConstantConstruction`——只有闭包显示类

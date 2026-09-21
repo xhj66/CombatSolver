@@ -60,6 +60,7 @@ internal static class ThirdPartyAdapterRegistry
 
     private static readonly Dictionary<(string Type, string Id), MonsterMoveEffectHandler> MoveEffectTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterBranchResolver> BranchResolverTable = [];
+    private static readonly HashSet<(string Type, string Id)> PureBranchSelectorTable = [];
     private static readonly Dictionary<string, string[]> StaticIntMemberTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, string[]> ScalarStateMemberTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, TurnStartPowerHandler> TurnStartPowerTable = new(StringComparer.Ordinal);
@@ -240,6 +241,42 @@ internal static class ThirdPartyAdapterRegistry
 
     public static bool HasBranchResolver(string monsterTypeName, string branchId)
         => BranchResolverTable.ContainsKey((monsterTypeName, branchId));
+
+    // === 第三方分支状态：预测器可否直接调用它的选择函数 ===
+
+    /// <summary>
+    /// 声明某个第三方分支状态的**选择函数是纯读取**，因而 <see cref="IntentForecaster"/> 推演后续回合时
+    /// 可以照原样在实机模型上调用它。
+    /// </summary>
+    /// <remarks>
+    /// 第三方 <c>ConditionalBranchState.GetNextState</c> 的委托是在**实机模型**上跑的，它可以写实机字段：
+    /// 往昔之书的 <c>SelectNextMove</c> 每次都 <c>StabCount++</c>，而它的攻击段数正是读这个计数
+    /// （<c>DynamicMultiAttackIntent(() =&gt; StabDamage, () =&gt; StabCount)</c>）。预测器一次推演要看 16 个
+    /// 回合，未声明就把实机计数推高十几格——界面显示 7×15，**真实战斗**也会照着 7×15 打。
+    ///
+    /// <para>
+    /// 所以默认**不调用**：命中未声明的第三方分支状态时，推演在那条怪物上停下并记一条
+    /// <c>unsupported</c>，而不是让预测去改动玩家的实际战斗。声明是「已复核事实」，与
+    /// <c>RegisterIgnored</c> 同一类：只有逐行反编译确认选择函数只读字段／只读实机 StateLog 与传入的
+    /// <c>rng</c>、不写任何实机状态、不下命令，才允许登记。声明前必须先登记同一 (怪物, 分支) 的
+    /// <see cref="RegisterMonsterBranchResolver"/>——两者缺一，这条分支要么算不出来、要么会把战斗改坏。
+    /// </para>
+    /// </remarks>
+    public static void RegisterPureBranchSelector(string monsterTypeName, string branchId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(monsterTypeName);
+        ArgumentException.ThrowIfNullOrEmpty(branchId);
+        if (!BranchResolverTable.ContainsKey((monsterTypeName, branchId)))
+        {
+            throw new InvalidOperationException(
+                $"({monsterTypeName}, {branchId}) 还没登记分支解析实现；" +
+                "只声明选择函数是纯读取没有意义，搜索侧仍会拒绝这条分支。");
+        }
+        PureBranchSelectorTable.Add((monsterTypeName, branchId));
+    }
+
+    public static bool IsBranchSelectorInvocationAllowed(string monsterTypeName, string branchId)
+        => PureBranchSelectorTable.Contains((monsterTypeName, branchId));
 
     public static bool TryResolveBranch(
         MonsterModel monster,

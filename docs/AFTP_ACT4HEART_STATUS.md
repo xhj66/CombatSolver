@@ -274,6 +274,54 @@ Looter 是本次新解锁的第八个分支怪物，分支与效果都完整建�
 
 ---
 
+### 2.9 回归：意图预览把**实机**分支计数推高了（往昔之书 7×15）
+
+**症状**（玩家报告）：往昔之书的「多重刺击」第一回合显示并打出 **7×15**，正常应是 7×3。
+
+**根因**：`IntentForecaster`（意图预览）在推演后续回合时，对**第三方**分支状态直接调用了
+`MonsterState.GetNextState` —— 也就是往昔之章自己那个委托，它跑在**实机模型**上并且会写实机字段：
+
+```csharp
+// ActsFromThePast.BookOfStabbing
+private string SelectNextMove(...) { ...; StabCount++; return "STAB"; }   // 四条路径各自 StabCount++
+new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () => StabCount));
+```
+
+段数读的就是这个实机 `_stabCount`，而 `Stab` 行动是 `DamageCmd.Attack(StabDamage).WithHitCount(StabCount)`。
+预览一次要看 `SolverWeights.SetupValueHorizonTurns = 16` 个回合，每回合调一次委托就
+`StabCount++` 一格：从入场时的 1（`AfterAddedToRoom`）被推到 15 上下，于是**游戏自己**的意图显示
+和实际结算都变成 7×15。这不是「预览不准」，是求解器改坏了玩家正在打的那场战斗，
+直接违反「不得读取会随实机推进而变化的 live 值，也不得修改真实战斗」。
+
+同一段代码对 `default:` 分支（第三方 `MonsterState` 子类都落在这里）与 `ConditionalBranchState`
+分支都会调用实机委托；往昔之章的 `ConditionalBranchState` 继承自 `MonsterState`、不是原版那个类型，
+所以走的是 `default:`。`BranchMonsterStaticSnapshot.Capture` 里的同名调用有
+`!IsForeignBranchState(...)` 守卫，搜索侧的 `ThirdPartyMonsterBranches.Resolve` 走登记表——只有
+预览这一条路漏了。
+
+**修法（两条一起上）**：
+
+1. `IntentForecaster.RollNext` 遇到第三方分支状态时**默认不调用**：记一条
+   `unsupported`（`<怪物>.<分支>:第三方分支状态`）并让这条怪物退出推演，返回 `null`，
+   调用方 `cursor.Active = false`。宁可少一段预览，也不拿玩家的战斗去换。
+2. 新增 `ThirdPartyAdapterRegistry.RegisterPureBranchSelector(怪物类型名, 分支 Id)`：
+   逐行复核过「只读自己的标量字段与实机 `StateLog`、按源码顺序抽传入的 `rng`、不写实机状态、
+   不下命令」的选择函数可以显式声明放行，预览行为与适配前完全一致。登记前必须先有同一
+   (怪物, 分支) 的 `RegisterMonsterBranchResolver`（核心会拒绝只声明一半）。
+   往昔之章已声明 §2.1 表里的 8 条（`AcidSlimeMedium` / `SpikeSlimeMedium` / `FungiBeast` /
+   `JawWorm` / `GremlinNob` / `SlaverBlue` 的 `MOVE_BRANCH`、`GremlinWizard` 的 `AFTER_CHARGE`、
+   `Looter` 的 `MUG_BRANCH`），见 `ExordiumBranchResolvers.PureSelectors`。
+
+**边界**：`RegisterPureBranchSelector` 是「已复核事实」，判不了真伪；往昔之章再改这些选择函数的
+实现时要回来重新核对。往昔之书、史莱姆分裂等**没有声明**的分支现在一律不调用，因此它们所在战斗的
+预览会在第一次分支处停下并显示「预览可能不完整」——这是刻意的，它们本来也还没有预测实现。
+
+**未处理的同类点**：`SimulatedCombatState.GetNextMoveIdFromStateLog` 也会调
+`MonsterState.GetNextState`，目前唯一调用方是振翅 Power 的镜像，而振翅只挂在原版跳跳虫身上，
+够不到第三方分支状态；如果将来第三方怪物也能拿到这类能力，这里要一并加守卫。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、

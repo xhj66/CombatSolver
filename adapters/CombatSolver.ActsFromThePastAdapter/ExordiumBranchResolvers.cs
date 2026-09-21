@@ -48,7 +48,28 @@ internal static class ExordiumBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlaverBlue", "MOVE_BRANCH", SlaverBlue);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinWizard", "AFTER_CHARGE", GremlinWizard);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Looter", "MUG_BRANCH", Looter);
+
+        // 上面这些分支的选择函数都逐行复核过：只读自己的标量字段与实机 StateLog、只按源码顺序抽传入的
+        // rng，不写实机状态、不下命令。声明之后预测器才能照旧在实机上调用它们推演后续回合；
+        // 没声明的第三方分支（例如往昔之书那种每次选择都 StabCount++ 的）预测器一律不碰。
+        foreach ((string monster, string branch) in PureSelectors)
+            ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
+
+    /// <summary>
+    /// 逐行复核为「纯读取」的 (怪物, 分支) 选择函数。改动这条分支的实现前先回来重新核对。
+    /// </summary>
+    internal static readonly (string Monster, string Branch)[] PureSelectors =
+    [
+        ("AcidSlimeMedium", "MOVE_BRANCH"),
+        ("SpikeSlimeMedium", "MOVE_BRANCH"),
+        ("FungiBeast", "MOVE_BRANCH"),
+        ("JawWorm", "MOVE_BRANCH"),
+        ("GremlinNob", "MOVE_BRANCH"),
+        ("SlaverBlue", "MOVE_BRANCH"),
+        ("GremlinWizard", "AFTER_CHARGE"),  // SelectAfterCharge：只读 _currentCharge
+        ("Looter", "MUG_BRANCH"),           // SelectAfterMug：只读 _mugCount
+    ];
 
     internal static readonly string[] RegisteredMonsterTypes =
     [

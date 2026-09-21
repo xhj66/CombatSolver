@@ -75,7 +75,21 @@ internal static class IntentForecaster
                     cursor.Active = false;
                     continue;
                 }
-                cursor.Current = RollNext(cursor, rng, ref exact, approximationDetails);
+                MoveState? next = RollNext(
+                    cursor,
+                    rng,
+                    ref exact,
+                    ref unsupported,
+                    unsupportedDetails,
+                    approximationDetails);
+                if (next is null)
+                {
+                    // 不能安全推演下去（未声明为纯读取的第三方分支状态）：这条怪物退出推演，
+                    // 后续回合不再给它排预测行动，也不去调用会改动实机状态的委托。
+                    cursor.Active = false;
+                    continue;
+                }
+                cursor.Current = next;
             }
             monsterAiCounters.Add(rng.ToSerializable().counter);
         }
@@ -255,10 +269,16 @@ internal static class IntentForecaster
             ("WaterfallGiant", "STOMP_MOVE" or "RAM_MOVE" or "PRESSURE_GUN_MOVE" or "PRESSURE_UP_MOVE");
     }
 
-    private static MoveState RollNext(
+    /// <summary>
+    /// 推演这条怪物的下一个行动。返回 <c>null</c> 表示**无法安全推演**（只在命中未声明为纯读取的
+    /// 第三方分支状态时发生），调用方应让这条怪物退出推演。
+    /// </summary>
+    private static MoveState? RollNext(
         Cursor cursor,
         Rng rng,
         ref bool exact,
+        ref bool unsupported,
+        ISet<string> unsupportedDetails,
         ISet<string> approximationDetails)
     {
         MonsterMoveStateMachine machine = cursor.Monster.MoveStateMachine
@@ -281,6 +301,25 @@ internal static class IntentForecaster
 
         for (int guard = 0; guard < 32; guard++)
         {
+            // 第三方分支状态的选择函数是对方程序集里的委托，跑在**实机模型**上，可能写实机字段
+            // （往昔之书的 SelectNextMove 每次都 StabCount++，而它的攻击段数读的就是这个计数）。
+            // 预测器一次要看 16 个回合，未声明的委托绝不能调用——它会改动玩家正在打的那场战斗。
+            if (ThirdPartyMonsterBranches.IsForeignBranchState(state))
+            {
+                if (!ThirdPartyAdapterRegistry.IsBranchSelectorInvocationAllowed(
+                        cursor.Monster.GetType().Name,
+                        state.Id))
+                {
+                    unsupported = true;
+                    unsupportedDetails.Add($"{cursor.Monster.Id.Entry}.{state.Id}:第三方分支状态");
+                    return null;
+                }
+                exact = false;
+                approximationDetails.Add($"{cursor.Monster.Id.Entry}.{state.Id}:条件分支");
+                state = machine.States[state.GetNextState(cursor.Monster.Creature, rng)];
+                continue;
+            }
+
             switch (state)
             {
                 case MoveState move:
