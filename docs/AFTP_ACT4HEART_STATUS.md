@@ -1035,6 +1035,45 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 ---
 
+### 4.4 全库进度与缺口总表（2026-09-21 收口，供后续批次直接接手）
+
+**已适配（按幕）**：
+第一幕 12 只带分支的怪物（§2.1）＋ `Looter`（§2.8）＋ 史莱姆三件套（§2.11）＋ 小鬼盾兵（§2.12）；
+第二幕 `Centurion`／`Mystic`（§2.13）、`Bear`／`Pointy`／`Taskmaster`／`Mugger`（§2.14）、
+`Romeo`／`SphericGuardian`／`Snecko`（§2.15）、`Chosen`／`Champ`（§2.16）、`BookOfStabbing`（§2.17）、
+`TorchHead`（§2.18，零登记）；
+第三幕 `Repulsor`／`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、
+`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）。
+
+**未适配与确切缺口**（每条都已反编译核对过，动手时不需要重新侦察）：
+
+| 幕 | 怪物 | 缺什么 |
+| --- | --- | --- |
+| 一 | `SlaverRed` | 手牌**病症与可打出性**镜像（`EntangledPower` + `EntangledOriginal` 病症，组 7）——需要本体的「卡牌可打出性」入口 |
+| 一 | `Hexaghost` | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
+| 一 | `Guardian` | `SetMoveImmediate` 式强制改行动 + `ModeShiftPower`（形态切换）+ `SharpHidePower` + `BeforeDeath`（组 4／5）。**注**：本体的 `SimulatedCombatState.ForceStunnedMove` / `ForceMonsterMove` 已经存在且适配层可直呼（publicizer），所以「强制改行动」不需要新登记点，缺的是这几个 Power 的镜像与它自己的分支 |
+| 一 | `Lagavulin` | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
+| 二 | `BronzeAutomaton` | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
+| 二 | `BronzeOrb` | `STASIS` 要**偷牌**：洗牌抽/弃牌堆、按稀有度挑、`StasisPower.Capture`（私有字段存被偷的牌）、死亡时归还。被偷牌是**对象引用**，需要一个能随 Fork 重映射的预测状态（现成参照：`Thief` 的 `SwipePower` 处理与 `NightmarePower` 的 `_nightmareSelections`） |
+| 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
+| 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
+| 二 | `ShelledParasite` | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
+| 二 | `SnakePlant` | `MalleablePower`：`AfterDamageReceived`（累加 `_pendingBlock` 并 +1 层）+ `AfterAttack`（给格挡）+ **常规回合末**清零与回滚层数（入口已就绪）；私有 `_pendingBlock` 要进 `PowerHiddenStateMirrors` |
+| 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
+| 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
+| 三 | `Deca` / `Donu` | AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；另外两钩（`BeforeSideTurnEndEarly`、`AfterDamageReceived`）已就绪 |
+| 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
+| 三 | `WrithingMass` | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
+| 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |
+| 三 | `AwakenedOne` | 两阶段 + 重生（`REBIRTH`）+ `ShouldDisappearFromDoom` + `BeforeDeath` |
+| 三 | `TimeEater` | `TimeWarpPower`（回合计数、内部 DynamicVar + 卡牌计数）+ `HASTE` + `AfterAddedToRoom` |
+
+**`BeforeSideTurnStart` 的落点（本轮侦察结论，供下一批直接实现）**：
+`SimulatedCombatState.RoundNumber` 已在位（`CombatBeamSolver.RoundTransition` 里自增，也进诊断与指纹），
+所以 `PlatedArmorPower` 那条 `RoundNumber != 1` 的判据可以原样表达；入口仍按「按类型查表、
+未登记不做任何事」的形状加，派发点分别是玩家侧回合开始的既有函数
+（`TurnStartPowerSupport.TriggerAfterPlayerTurnStart` 那条链）与敌人侧回合开始处，
+**不要**用 `MirroredHookMask` 全量派发（那会让原版重写者撞上未登记的失败路径）。
 ## 5. 本地编译
 
 **用标准命令构建，不要覆盖构建目标。**
