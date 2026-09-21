@@ -13,9 +13,13 @@
   `RequirePowerType`、`RequireAfflictionType`；只拿简单名的 `RequireOverride`／`RequireConst`
   走唯一命中的 `ResolveDeclaredType`。失败信息同时给出「试过的命名空间」与「实际在哪个命名空间」。
 - 新增离线门禁 [往昔之章适配登记名核对](../tools/AdapterTypeNameChecks/README.md)：不启动游戏，
-  对着已安装程序集的元数据核对每个登记名、每条 `RequireOverride` 形状与每个钉死常量；
-  对改前源码报 23 条名字失败，对修复后源码通过。证据与未验证项见
+  对着已安装程序集的元数据核对每个登记名、每条 `RequireOverride` 形状、每个钉死常量，以及
+  `RegisterMonsterStateMembers`／`RegisterStaticIntMembers` 的成员名（这两个入口登记时不校验）；
+  对改前源码报 23 条名字失败，对修复后源码通过（`stateMembers=92`）。证据与未验证项见
   [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.7。
+- 21:10 的第二个问题包（`85d700fd…`）是同一场战斗的重复导出：修复当时只编到 `bin/Release`，
+  游戏加载的仍是旧构建。已用默认 `CopyModOnBuild=true` 重新构建并部署适配
+  （部署产物与构建产物哈希一致），核心 DLL 无缺口、未重编。
 - 两个适配 manifest 的 author 字段统一为 `pknigh`（原为 `Torch`）；求解器本体、搜索、部署与
   玩家可见行为均未改动。
 

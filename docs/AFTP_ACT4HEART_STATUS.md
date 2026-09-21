@@ -1438,6 +1438,17 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 - **实测。** 修复后 `CombatSolver-AFTP` Release 构建 0 error；门禁对已安装 1.0.5 输出
   `ADAPTER_TYPE_NAMES_OK … monsters=28 powers=18 afflictions=1 exact=3 overrides=59 consts=44`；
   同一门禁对改前源码输出 `ADAPTER_TYPE_NAMES_FAILED count=23`（平铺名字找不到）。
+- **第二个包：修好了但没部署。** 21:10 的 `85d700fd…` 是同一场战斗（同种子 `WRSBYZUUCJFS`、
+  同一初始状态指纹）的第二次导出，症状与前包逐字相同。核对已安装产物后确认：游戏加载的仍是
+  19:57:14 的旧 `CombatSolver-AFTP.dll`（SHA256 `5F7D8786…`，元数据里没有 `RequirePowerType`／
+  `RequireAfflictionType`），修复构建当时只落在 `bin/Release`。教训是**验证用的编译不等于部署**：
+  要实机复核必须用默认 `CopyModOnBuild=true` 构建，或单独复制 DLL 与 manifest 进 `mods\CombatSolver-AFTP\`。
+  已按此部署（SHA256 `EBC32D39…`，与构建产物一致，manifest author `pknigh`）；核心
+  `CombatSolver.dll`（19:57:06）已含适配引用的全部登记入口，无需重编核心。
+- **门禁扩展。** 同一批的 `RegisterMonsterStateMembers`／`RegisterStaticIntMembers` 成员名也进了门禁
+  （这两个入口登记时不校验，写错要等根捕获才炸）。重跑输出
+  `… overrides=59 consts=44 stateMembers=92`，即 18:39 之后从未实机跑过的那批登记在
+  类型名、重写形状、常量与成员名四个层面都没有缺口。
 - **未验证。** 本轮没有启动游戏：适配在实机里真正登记成功、以及该遭遇能算出路线，仍须在游戏内复核。
   原包 `replay/current/recording/events.jsonl` 为空、只有战前存档，可按 §5.2 的口径从 `start` 恢复。
 
@@ -1447,7 +1458,8 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 1. **运行期验证**：两个适配目前只过了编译与自检路径复核，尚**未在游戏里跑通**。
    2026-09-21 又暴露了一次登记名漂移回归（§3.7）：命名空间问题已修，离线门禁通过，
-   但「适配加载后自检通过并真的登记成功」仍要由同一局游戏复核。
+   但「适配加载后自检通过并真的登记成功」仍要由同一局游戏复核。修复后的适配已于当天 21:13
+   部署进 `mods\CombatSolver-AFTP\`（SHA256 `EBC32D39…`），下一次游戏会话就是这次验收。
    需要一局能走到 Act 4 / 心脏，核对：心脏三轮循环的分支、死亡节拍的反伤、
    无敌封顶后的截断，以及盾兵球位分支的抽样次数。Act4Heart 已作为创意工坊条目安装，
    具备运行期验证条件。

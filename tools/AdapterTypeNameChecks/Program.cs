@@ -31,6 +31,7 @@ int exactNames = 0;
 int memberTypeNames = 0;
 int overrideChecks = 0;
 int constChecks = 0;
+int memberChecks = 0;
 
 foreach (string file in Directory.EnumerateFiles(sourceDir, "*.cs", SearchOption.TopDirectoryOnly)
              .OrderBy(path => path, StringComparer.Ordinal))
@@ -126,6 +127,31 @@ foreach (string file in Directory.EnumerateFiles(sourceDir, "*.cs", SearchOption
                 + "往昔之章改了数值，适配需要重新核对。");
         }
     }
+
+    // 根捕获/指纹用的怪物成员名单：成员必须真的存在（字段或属性），否则根捕获时才炸。
+    foreach (string api in new[] { "RegisterMonsterStateMembers", "RegisterStaticIntMembers" })
+    {
+        foreach (Match match in Matches(
+                     text,
+                     @"ThirdPartyAdapterRegistry\." + api + @"\(\s*""([A-Za-z0-9_]+)""([^)]*)\)"))
+        {
+            string monsterName = match.Groups[1].Value;
+            string? fullName = ResolveMonster(monsterName, name);
+            if (fullName is null)
+                continue;
+            foreach (Match member in Matches(match.Groups[2].Value, @"""([A-Za-z0-9_]+)"""))
+            {
+                memberChecks++;
+                string memberName = member.Groups[1].Value;
+                if (!metadata.HasFieldOrProperty(fullName, memberName))
+                {
+                    failures.Add(
+                        $"{name}: {api} 里的 {fullName}.{memberName} 不存在（不是字段也不是属性），"
+                        + "根捕获会拿不到这个成员。");
+                }
+            }
+        }
+    }
 }
 
 if (failures.Count > 0)
@@ -140,7 +166,7 @@ Console.WriteLine(
     $"ADAPTER_TYPE_NAMES_OK assembly={assemblyPath} source={sourceDir} "
     + $"monsters={monsterNames} powers={powerNames} afflictions={afflictionNames} "
     + $"exact={exactNames} memberTypes={memberTypeNames} overrides={overrideChecks} consts={constChecks} "
-    + $"declaredTypes={metadata.TypeCount}");
+    + $"stateMembers={memberChecks} declaredTypes={metadata.TypeCount}");
 return 0;
 
 // === 核对 ===
@@ -211,6 +237,19 @@ string? ResolveDeclaredType(string typeName, string where)
     failures.Add(hits.Length == 0
         ? $"{where}: {typeName} 不存在（已试 {string.Join("、", candidates)}），往昔之章版本可能已变动。"
         : $"{where}: {typeName} 同时命中 {string.Join("、", hits)}，适配需要改为按用途显式登记。");
+    return null;
+}
+
+// 怪物成员名单登记只写怪物名：与 AfpReflection.RequireMonster 同一口径。
+string? ResolveMonster(string typeName, string where)
+{
+    string[] candidates = [$"{MonsterNamespace}.{typeName}", $"{BeyondEnemyNamespace}.{typeName}"];
+    string[] hits = candidates.Where(metadata.HasType).ToArray();
+    if (hits.Length == 1)
+        return hits[0];
+    failures.Add(hits.Length == 0
+        ? $"{where}: 怪物 {typeName} 不存在（已试 {string.Join("、", candidates)}），往昔之章版本可能已变动。"
+        : $"{where}: 怪物 {typeName} 同时命中 {string.Join("、", hits)}，适配无法判断该用哪一个。");
     return null;
 }
 
@@ -390,6 +429,27 @@ internal sealed class ActsFromThePastMetadata : IDisposable
                 count++;
         }
         return count;
+    }
+
+    /// <summary>根播种与指纹名单里的成员是否存在（字段或属性都算）。</summary>
+    public bool HasFieldOrProperty(string fullName, string memberName)
+    {
+        if (!_types.TryGetValue(fullName, out TypeDefinitionHandle handle))
+            return false;
+        TypeDefinition definition = _metadata.GetTypeDefinition(handle);
+        foreach (FieldDefinitionHandle fieldHandle in definition.GetFields())
+        {
+            FieldDefinition field = _metadata.GetFieldDefinition(fieldHandle);
+            if (string.Equals(_metadata.GetString(field.Name), memberName, StringComparison.Ordinal))
+                return true;
+        }
+        foreach (PropertyDefinitionHandle propertyHandle in definition.GetProperties())
+        {
+            PropertyDefinition property = _metadata.GetPropertyDefinition(propertyHandle);
+            if (string.Equals(_metadata.GetString(property.Name), memberName, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>按 AfpReflection.RequireConst 的判据：静态字面量 int 常量。</summary>

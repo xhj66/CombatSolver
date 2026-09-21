@@ -11,6 +11,23 @@
   `ADAPTER_TYPE_NAMES_FAILED count=23`，逐条列出平铺名找不到的能力与第三幕怪物。
 - 结构门禁 `pwsh -NoProfile -File tools/verify-refactor-boundaries.ps1` 输出
   `REFACTOR_BOUNDARIES_OK search_files=205`。
+- 第二个问题包 `85d700fd…`（21:10，同一场 `ACTSFROMTHEPAST-SMALL_SLIMES_WEAK`、同种子
+  `WRSBYZUUCJFS`）与第一个包症状逐字相同。对账已安装产物定性为**旧构建未部署**：
+  `mods\CombatSolver-AFTP\CombatSolver-AFTP.dll` 是 19:57:14 的产物（SHA256 `5F7D8786…`），
+  元数据里没有 `RequirePowerType`／`RequireAfflictionType`；`mods\CombatSolver\CombatSolver.dll`
+  （19:57:06）已含适配引用的全部登记入口（`RegisterRespawnPower` 4 参、`RegisterRevivePower` 3 参、
+  `RegisterCardAfflictionSource` 3 参…）。
+- 修复动作与证据：用默认 `CopyModOnBuild=true` 重新构建部署 `CombatSolver-AFTP`
+  （首次被文件沙箱拒绝 MSB3021，提权重跑同一命令后成功）；部署产物
+  `mods\CombatSolver-AFTP\CombatSolver-AFTP.dll` 120832 B、SHA256 `EBC32D39B0CE0EC36E4F06C93F5B58E4E5A9158946645990273CCD7793997420`，
+  与同一次构建的输出哈希一致，含 `RequirePowerType`／`RequireAfflictionType`、不含旧的平铺字面量；
+  部署 manifest `author=pknigh`。`CombatSolver-Heart` 只同步了 manifest（author），未重建其 DLL。
+- 门禁扩展后重跑：`ADAPTER_TYPE_NAMES_OK … overrides=59 consts=44 stateMembers=92`——
+  `RegisterMonsterStateMembers`／`RegisterStaticIntMembers` 的 92 个成员名在已安装 1.0.5 上全部存在
+  （这两个入口登记时不校验，写错要等根捕获才炸）。
+- **未验证**：仍然没有启动游戏，未跑该问题包的检查点恢复／搜索／部署；「部署后的适配在实机里
+  自检通过并登记成功」要由下一次游戏会话回答。隔离的无人测试进程加载不了真实 AFTP 程序集，
+  不能替代这次实机验证。
 - 关键判断：① 失败原因是命名空间而不是对方改版——1.0.5 元数据里 `EntangledPower` 在
   `ActsFromThePast.Powers`、`EntangledOriginal` 在 `ActsFromThePast.Afflictions`、17 只第三幕怪物在
   `ActsFromThePast.Acts.TheBeyond.Enemies`，而适配原先只按平铺全名查找；② 「自检不过一个条目都不登记」

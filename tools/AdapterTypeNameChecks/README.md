@@ -24,6 +24,7 @@ dotnet run --project tools/AdapterTypeNameChecks/AdapterTypeNameChecks.csproj -c
 | `RequireType("全名")` / `RequireType(常量)` | 该全名存在 |
 | `RequireOverride(类型, 方法, 参数个数)` | 该类型确实重写了这个方法（virtual 且非 NewSlot），形参个数按 Param 表序号非 0 的行数 |
 | `RequireConst(类型, 常量, 期望值)` | 该静态字面量 int 常量仍在，且取值与适配钉死的一致 |
+| `RegisterMonsterStateMembers` / `RegisterStaticIntMembers` | 名单里的每个成员都在该怪物类型上存在（字段或属性）；这两个入口本身不做校验，名字写错要等根捕获时才炸 |
 
 成功输出一行 `ADAPTER_TYPE_NAMES_OK …` 并返回 0；失败逐条打印并返回 1。
 
