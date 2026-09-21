@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第三幕首领时间吞噬者（`TimeEater`）（2026-09-21）
+
+- 分支六档（半血且没加速过就直接 HASTE、不抽 RNG；其余按 `NextInt(100)` 落档，档内失败再抽
+  `NextInt(50)`／`NextInt(75)`／`NextFloat(1)`）逐条照抄；RIPPLE 格挡+三减益、HEAD_SLAM 的攻击+抽牌减少+
+  2 张 Slimed（生成时按适配层既有口径登记经典／普通）、HASTE 的清自身减益+回半血+格挡。
+- `TimeWarpPower.AfterCardPlayed`：计数放进预测状态（进指纹、根捕获把实机值搬进来），数到 12 就清零、
+  请求结束玩家回合（`combat.RequestPlayerTurnEnd`，对应源码的 `PlayerCmd.EndTurn`）、再给所有存活敌人 2 力量。
+- 抽牌减少 `DrawReductionPower` **不需要** `ModifyHandDraw` 镜像：核心的原版钩子路径本来就拿影子状态去调
+  模型自己的实现（与 `ModifyDamage` 同一机制）；只有它的持续时间递减要在常规回合末入口登记
+  （`TickDurations` 只认原版那几个类型）。逐条对照见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.41。
 ## 未发布：第三幕蠕动肉块（`WrithingMass`）（2026-09-21）
 
 - 分支 `MOVE_BRANCH` 的五档抽样（`_firstMove` 三选一；之后 `NextInt(100)` 落 10／20／40／70 四档，

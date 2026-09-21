@@ -2,6 +2,8 @@ using System.Reflection;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.Powers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
@@ -11,6 +13,7 @@ using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Attack;
+using CombatSolver.Engine.InCombat.Mirrors.Hooks.Card;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Damage;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Death;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.TurnEnd;
@@ -50,7 +53,16 @@ internal static class BeyondMoveEffects
         "Transient",
         "Lagavulin",
         "WrithingMass",
+        "TimeEater",
     ];
+
+    /// <summary>AFTP 自己的 <c>TimeWarpPower</c>（时间吞噬者的「时间扭曲」）与 <c>DrawReductionPower</c>。</summary>
+    private static Type _timeWarpPowerType = null!;
+    private static Type _drawReductionType = null!;
+
+    /// <summary>时间吞噬者 RIPPLE 的三减益层数（AFTP <c>DebuffTurns</c>）与 HEAD_SLAM 的 Slimed 张数。</summary>
+    private static int _timeEaterDebuffTurns;
+    private static int _timeEaterSlimedCount;
 
     /// <summary>AFTP 自己的 <c>ReactivePower</c>（蠕动肉块的「反应」）。</summary>
     private static Type _reactivePowerType = null!;
@@ -207,6 +219,13 @@ internal static class BeyondMoveEffects
         _reactivePowerType = AfpReflection.RequireType("ActsFromThePast.ReactivePower");
         _ = AfpReflection.RequireOverride("ReactivePower", "AfterDamageReceived", 6);
         _writhingNormalDebuff = AfpReflection.RequireConst("WrithingMass", "NormalDebuffAmount", 2);
+        _timeWarpPowerType = AfpReflection.RequireType("ActsFromThePast.TimeWarpPower");
+        _ = AfpReflection.RequireOverride("TimeWarpPower", "AfterCardPlayed", 2);
+        _timeEaterDebuffTurns = AfpReflection.RequireConst("TimeEater", "DebuffTurns", 1);
+        _timeEaterSlimedCount = AfpReflection.RequireConst("TimeEater", "SlimedCount", 2);
+        _drawReductionType = AfpReflection.RequireType("ActsFromThePast.DrawReductionPower");
+        _ = AfpReflection.RequireOverride("DrawReductionPower", "ModifyHandDraw", 2);
+        _ = AfpReflection.RequireOverride("DrawReductionPower", "AfterSideTurnEnd", 3);
     }
 
     public static void RegisterAll()
@@ -477,6 +496,182 @@ internal static class BeyondMoveEffects
         // ReactivePower.AfterDamageReceived：挨打后**随机改掉自己下一个行动**（用共享的 MonsterAi 流，
         // 候选来自它自己的行动表，排除当前行动与 MOVE_BRANCH，用过 MEGA_DEBUFF 就排除它）。
         AfterDamageReceivedMirrors.Register(_reactivePowerType, ReactivePowerDamageReceived);
+
+        // --- 时间吞噬者（TimeEater，第三幕首领） ---
+        // 开场挂 1 层 TimeWarpPower 在 AfterAddedToRoom（已在根里）。分支读写的 _usedHaste 与 _firstTurn 进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("TimeEater", "_usedHaste", "_firstTurn");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("TimeEater", "RIPPLE", TimeEaterRipple);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("TimeEater", "HEAD_SLAM", TimeEaterHeadSlam);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("TimeEater", "HASTE", TimeEaterHaste);
+        // TimeWarpPower.AfterCardPlayed：每打一张牌计数 +1，数到 12 就清零、强制结束玩家回合、给所有敌人 2 力量。
+        AfterCardPlayedMirrors.Register(_timeWarpPowerType, TimeWarpCardPlayed);
+        // 卡牌计数决定「什么时候强制结束回合」，所以必须进指纹；根捕获把实机值搬进预测状态。
+        PowerHiddenStateMirrors.RegisterRootCapture(
+            _timeWarpPowerType,
+            (simulator, clone, original) => _ = simulator.StateStore.GetReadOnly(
+                clone,
+                () => new TimeWarpPredictionState(original)));
+        PowerHiddenStateMirrors.Register(
+            _timeWarpPowerType,
+            "cardCount",
+            static (simulator, power) => simulator.StateStore
+                .Peek(power, static () => new TimeWarpPredictionState())
+                .CardCount);
+        // DrawReductionPower（HEAD_SLAM 挂的「每回合少抽一张」）：
+        // 它的 ModifyHandDraw 由核心的原版钩子路径直接调用**影子状态**里的 Power（与 ModifyDamage 同一机制），
+        // 不需要镜像；只有持续时间递减要走我们自己的常规回合末入口（TickDurations 只认原版那几个类型）。
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("DrawReductionPower", DrawReductionTurnEnd);
+    }
+
+    /// <summary>
+    /// AFTP <c>DrawReductionPower.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末减 1 层
+    /// （源码走的是 <c>PowerCmd.TickDownDuration</c>，即持续时间递减，归零就移除）。
+    /// </summary>
+    private static void DrawReductionTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = simulator;
+        _ = participants;
+        if (side != power.Owner.Side)
+            return;
+        ICombatPredictionEffectSink effects = combat as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("抽牌减少缺少可写的预测状态。");
+        effects.SetPowerAmount(power, Math.Max(0, power.Amount - 1));
+    }
+
+    /// <summary>时间吞噬者 RIPPLE：自己 20 格挡（`Move`），再给每个活着的目标 1 层易伤／虚弱／破甲。</summary>
+    private static bool TimeEaterRipple(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.GainBlock(move.Owner, 20, ValueProp.Move);
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.Apply<VulnerablePower>(player, _timeEaterDebuffTurns, move.Owner);
+        combat.Apply<WeakPower>(player, _timeEaterDebuffTurns, move.Owner);
+        combat.Apply<FrailPower>(player, _timeEaterDebuffTurns, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// 时间吞噬者 HEAD_SLAM：攻击之后给每个活着的目标 1 层「抽牌减少」，再往弃牌堆底部塞 2 张 Slimed
+    /// （生成的牌按适配层既有口径登记经典／普通，见 <see cref="ClassicSlimed.RecordGenerated"/>）。
+    /// </summary>
+    private static bool TimeEaterHeadSlam(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyPower(_drawReductionType, player, 1, move.Owner);
+        Player? targetPlayer = player.Player ?? player.PetOwner;
+        if (targetPlayer is null)
+            return true;
+        IReadOnlyList<SimCardPileAddResult> added = simulator.CreateAndAddGeneratedCardsToCombat<Slimed>(
+            targetPlayer,
+            PileType.Discard,
+            _timeEaterSlimedCount,
+            null,
+            CardPilePosition.Bottom);
+        foreach (SimCardPileAddResult result in added)
+            ClassicSlimed.RecordGenerated(result.CardAdded);
+        return true;
+    }
+
+    /// <summary>
+    /// 时间吞噬者 HASTE：清掉自己身上**所有减益**，血量回到上限一半（不足才回），再按 HEAD_SLAM 的伤害值
+    /// 给自己格挡（源码用的是同一个 <c>HeadSlamDamage</c> 属性）。
+    /// </summary>
+    private static bool TimeEaterHaste(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        foreach (PowerModel power in combat.EffectivePowers())
+        {
+            if (ReferenceEquals(power.Owner, move.Owner)
+                && power.Amount > 0
+                && power.Type == PowerType.Debuff)
+            {
+                combat.SetPowerAmount(power, 0);
+            }
+        }
+        SimCreatureState creature = simulator.State.GetCreature(move.Owner);
+        int healAmount = creature.MaxHp / 2 - creature.CurrentHp;
+        if (healAmount > 0)
+            simulator.Heal(move.Owner, healAmount);
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "HeadSlamDamage"),
+            ValueProp.Move);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>TimeWarpPower.AfterCardPlayed</c>：计数 +1；数到 <c>Countdown</c>（单人 12）就清零、
+    /// **强制结束玩家回合**、再给所有存活敌人 2 点力量。
+    /// </summary>
+    /// <remarks>
+    /// 源码用的是 <c>PlayerCmd.EndTurn</c>（中途立刻结束回合），预测里用
+    /// <c>SimulatedCombatState.RequestPlayerTurnEnd</c>——核心既有的「请求结束回合」入口，会在当前这张牌
+    /// 的出牌流程结束后收口，与「立刻结束」在单次出牌粒度上等价。
+    /// </remarks>
+    private static void TimeWarpCardPlayed(AbstractModel model, AfterCardPlayedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.CombatState is not SimulatedCombatState combat)
+            throw new PredictionUnsupportedException("时间扭曲缺少可写的预测状态。");
+        TimeWarpPredictionState state = context.Simulator.StateStore
+            .Get(power, static () => new TimeWarpPredictionState());
+        state.CardCount++;
+        int countdown = power.DynamicVars["Countdown"].IntValue;
+        if (state.CardCount < countdown)
+            return;
+        state.CardCount = 0;
+        combat.RequestPlayerTurnEnd();
+        foreach (Creature enemy in combat.KnownEnemies)
+        {
+            if (context.Simulator.State.GetCreature(enemy).IsAlive)
+                combat.Apply<StrengthPower>(enemy, 2, power.Owner);
+        }
+    }
+
+    /// <summary>
+    /// AFTP <c>TimeWarpPower</c> 的卡牌计数在预测里的分支副本（数到 12 会强制结束回合，所以要进指纹）。
+    /// </summary>
+    internal sealed class TimeWarpPredictionState : IPredictionStateForkable
+    {
+        public TimeWarpPredictionState()
+        {
+        }
+
+        public TimeWarpPredictionState(PowerModel power)
+            => CardCount = power.DynamicVars["CardCount"].IntValue;
+
+        public int CardCount { get; set; }
+
+        public object Fork(PredictionForkContext context) => MemberwiseClone();
     }
 
     /// <summary>WrithingMass.AttackBlock：攻击之外给自己 <c>AttackBlockBlock</c> 点格挡（<c>Move</c>）。</summary>

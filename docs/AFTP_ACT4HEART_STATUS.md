@@ -1012,6 +1012,24 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 `MEGA_DEBUFF` 只置位（牌组改动未建模）都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.41 第三幕首领：时间吞噬者（`TimeEater`）
+
+| 部位 | 源码（`ActsFromThePast.TimeEater`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 挂 1 层 `TimeWarpPower` | 不需要代码（已在根里） |
+| `MOVE_BRANCH` | 血量掉到一半以下且还没加速过 ⇒ HASTE（**不抽 RNG**，血量读**模拟状态**）；否则抽 `NextInt(100)`：`< 45` 时最近没连出两次 REVERBERATE ⇒ 它、否则 `num = 50 + NextInt(50)`；`< 80` 时上一步不是 HEAD_SLAM ⇒ 它、否则 `NextFloat(1) < 0.66` 二选一；其余上一步不是 RIPPLE ⇒ 它、否则 `NextInt(75)`（`< 45` 且没连出两次 REVERBERATE ⇒ 它）、再不然上一步不是 HEAD_SLAM ⇒ 它、否则 `NextFloat(1) < 0.66` 二选一 | `BeyondBranchResolvers.TimeEater`（每处抽样与短路照抄）；`_usedHaste`／`_firstTurn` 进状态名单 |
+| `REVERBERATE` | `MultiAttackIntent(ReverbDamage, 3)` | 纯攻击，已在常量表 |
+| `RIPPLE` | 自己 20 格挡（`Move`）＋ 每个活着的目标 1 层易伤／虚弱／破甲（`DebuffTurns`） | `TimeEaterRipple`（层数 `RequireConst` 钉死 1） |
+| `HEAD_SLAM` | 攻击 ＋ 每个活着的目标 1 层 `DrawReductionPower` ＋ 往弃牌堆底部塞 2 张 `Slimed`（`SlimedCount`） | `TimeEaterHeadSlam`：按类型挂 `DrawReductionPower`；生成的 Slimed 用适配层既有口径登记经典／普通（`ClassicSlimed.RecordGenerated`） |
+| `HASTE` | 清掉自己身上**所有减益**，血量回到上限一半（不足才回），再按 `HeadSlamDamage` 给自己格挡 | `TimeEaterHaste`（格挡值走静态数值成员） |
+| `TimeWarpPower.AfterCardPlayed` | 每打一张牌计数 +1；数到 `Countdown`（单人 12）就清零、**强制结束玩家回合**、再给所有存活敌人 2 点力量 | `TimeWarpCardPlayed`：计数放预测状态（并进指纹、根捕获播种）；强制结束用 `combat.RequestPlayerTurnEnd()`（核心既有的「请求结束回合」入口）；力量逐敌施加 |
+| `DrawReductionPower` | `ModifyHandDraw` 少抽 1 张；`AfterSideTurnEnd` 递减持续时间 | **不需要抽牌镜像**：核心的原版钩子路径本来就是拿**影子状态**去调各模型自己的 `ModifyHandDraw`（与 `ModifyDamage` 同一机制）。只有持续时间递减要登记：`RegisterSideTurnEndPower("DrawReductionPower", …)`（核心的 `TickDurations` 只认原版那几个类型） |
+
+**未验证**：没有在游戏内打过「时间吞噬者」遭遇，六档抽样、`TimeWarpPower` 的强制结束回合（源码是
+`PlayerCmd.EndTurn`，预测里用请求式入口）、`DrawReductionPower` 的少抽一张与持续时间、HASTE 的清减益／
+回血／格挡都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1356,7 +1374,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 三 | ~~`WrithingMass`~~（已适配 §2.40；`MEGA_DEBUFF` 的牌组塞 Paraste 属跨战斗效果，未建模，见 §2.40） | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
 | 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |
 | 三 | `AwakenedOne` | 两阶段 + 重生（`REBIRTH`）+ `ShouldDisappearFromDoom` + `BeforeDeath` |
-| 三 | `TimeEater` | `TimeWarpPower`（回合计数、内部 DynamicVar + 卡牌计数）+ `HASTE` + `AfterAddedToRoom` |
+| 三 | ~~`TimeEater`~~（已适配 §2.41） | `TimeWarpPower`（回合计数、内部 DynamicVar + 卡牌计数）+ `HASTE` + `AfterAddedToRoom` |
 
 **`BeforeSideTurnStart` 的落点（本轮侦察结论，供下一批直接实现）**：
 `SimulatedCombatState.RoundNumber` 已在位（`CombatBeamSolver.RoundTransition` 里自增，也进诊断与指纹），

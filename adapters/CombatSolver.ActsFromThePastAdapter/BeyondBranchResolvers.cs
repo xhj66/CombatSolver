@@ -55,6 +55,7 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Nemesis", "MOVE_BRANCH", Nemesis);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Lagavulin", "MAIN_BRANCH", Lagavulin);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("WrithingMass", "MOVE_BRANCH", WrithingMass);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("TimeEater", "MOVE_BRANCH", TimeEater);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -62,7 +63,7 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis", "Lagavulin", "WrithingMass"];
+         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -616,6 +617,53 @@ internal static class BeyondBranchResolvers
         if (num < 40 && !LastMove(log, "ATTACK_DEBUFF"))
             return "ATTACK_DEBUFF";
         return "MULTI_HIT";
+    }
+
+    /// <summary>
+    /// TimeEater.SelectNextMove：血量掉到一半以下且还没加速过 ⇒ HASTE（**不抽 RNG**，血量读的是**模拟状态**）；
+    /// 否则抽 `NextInt(100)`：`&lt; 45` 时最近没连出两次 REVERBERATE ⇒ 它、否则 `num = 50 + NextInt(50)`；
+    /// `&lt; 80` 时上一步不是 HEAD_SLAM ⇒ 它、否则抽 `NextFloat(1)`（`&lt; 0.66` REVERBERATE 否则 RIPPLE）；
+    /// 其余上一步不是 RIPPLE ⇒ 它、否则 `num = NextInt(75)`（`&lt; 45` 且没连出两次 REVERBERATE ⇒ 它）、
+    /// 再不然上一步不是 HEAD_SLAM ⇒ 它、否则抽 `NextFloat(1)`（`&lt; 0.66` REVERBERATE 否则 RIPPLE）。
+    /// </summary>
+    /// <remarks>它写 `_usedHaste`，**不在**纯读取名单里；每处抽样与短路照抄。</remarks>
+    private static string TimeEater(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        SimCreatureState creature = simulator.State.GetCreature(monster.Creature);
+        if (creature.CurrentHp < creature.MaxHp / 2
+            && !combat.GetMonsterBool(monster.Creature, "_usedHaste"))
+        {
+            combat.SetMonsterBool(monster.Creature, "_usedHaste", true);
+            return "HASTE";
+        }
+        int num = rng.NextInt(100);
+        if (num < 45)
+        {
+            if (!LastTwoMoves(log, "REVERBERATE"))
+                return "REVERBERATE";
+            num = 50 + rng.NextInt(50);
+        }
+        if (num < 80)
+        {
+            if (!LastMove(log, "HEAD_SLAM"))
+                return "HEAD_SLAM";
+            return rng.NextFloat(1f) < 0.66f ? "REVERBERATE" : "RIPPLE";
+        }
+        if (!LastMove(log, "RIPPLE"))
+            return "RIPPLE";
+        num = rng.NextInt(75);
+        if (num < 45 && !LastTwoMoves(log, "REVERBERATE"))
+            return "REVERBERATE";
+        if (!LastMove(log, "HEAD_SLAM"))
+            return "HEAD_SLAM";
+        return rng.NextFloat(1f) < 0.66f ? "REVERBERATE" : "RIPPLE";
     }
 
     /// <summary>

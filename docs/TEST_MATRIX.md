@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕首领时间吞噬者（`TimeEater`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.TimeEater`（半血 HASTE 短路 + `NextInt(100)`/`NextInt(50)`/
+  `NextInt(75)` 与两处 `NextFloat(1)` 的六档判定）、两个状态成员、三个行动效果（RIPPLE 格挡+三减益、
+  HEAD_SLAM 的 `DrawReductionPower`＋2 张 Slimed（含 `ClassicSlimed.RecordGenerated`）、HASTE 的清减益／
+  回血／格挡）、`TimeWarpCardPlayed`（计数在预测状态、`RequestPlayerTurnEnd`＋逐敌 2 力量）、
+  `TimeWarpPredictionState`（根捕获 + 指纹槽）、`RegisterSideTurnEndPower("DrawReductionPower", …)` 与
+  两条 `RequireConst`／两条 `RequireOverride` 全部在场；部署产物与工作区构建哈希逐字节相同
+  （AFTP 106,496 B；核心本轮未改）。
+- 两处判断：① 抽牌减少**不需要**镜像——核心的原版钩子路径本来就拿影子状态去调模型自己的
+  `ModifyHandDraw`（与 `ModifyDamage` 同一机制），只有持续时间递减要登记（`TickDurations` 只认原版类型）；
+  ② `TimeWarpPower` 的「强制结束回合」源码用 `PlayerCmd.EndTurn`，预测里用核心既有的
+  `RequestPlayerTurnEnd`（在当前这张牌的出牌流程结束后收口），差别记在 §2.41。
+- **未验证**：没有在游戏内打过「时间吞噬者」遭遇，六档抽样、强制结束回合、少抽一张、HASTE 三件事都
+  **未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕蠕动肉块（`WrithingMass`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
