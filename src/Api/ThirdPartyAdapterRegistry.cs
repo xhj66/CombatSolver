@@ -96,6 +96,20 @@ internal static class ThirdPartyAdapterRegistry
         CombatSide side,
         IReadOnlyCollection<Creature> participants);
 
+    /// <summary>
+    /// 第三方 Power 重写的 <c>AbstractModel.BeforeSideTurnStart</c> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 这个阶段在求解器里有派发点（<c>TurnStartPowerSupport.TriggerBeforeSideTurnStart</c>），但原版那一批
+    /// 效果按类型写死在里面（例如原版 <c>PlatingPower</c> 在第 1 回合玩家侧开始时给敌人格挡），第三方类型
+    /// 落在那些循环之外。需要它的适配 Mod 在这里登记；处理函数在该阶段按**类型名**被调用，
+    /// 未登记的类型与今天完全一样（不做任何事）。
+    /// </remarks>
+    public delegate void SideTurnStartPowerHandler(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power);
+
     private static readonly Dictionary<(string Type, string Id), MonsterMoveEffectHandler> MoveEffectTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterBeforeAttackHandler> MoveBeforeAttackTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterBranchResolver> BranchResolverTable = [];
@@ -104,6 +118,7 @@ internal static class ThirdPartyAdapterRegistry
     private static readonly Dictionary<string, string[]> ScalarStateMemberTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, TurnStartPowerHandler> TurnStartPowerTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, SideTurnEndPowerHandler> SideTurnEndPowerTable = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, SideTurnStartPowerHandler> SideTurnStartPowerTable = new(StringComparer.Ordinal);
     private static readonly HashSet<string> AllowedCombatSubscriberTypes = new(StringComparer.Ordinal);
     private static readonly HashSet<(string Type, string Id)> StableAttackTable = [];
     private static readonly Dictionary<(string Type, string Id), MonsterAttackValueResolver> DynamicAttackTable = [];
@@ -187,6 +202,21 @@ internal static class ThirdPartyAdapterRegistry
         string powerTypeName,
         out SideTurnEndPowerHandler handler)
         => SideTurnEndPowerTable.TryGetValue(powerTypeName, out handler!);
+
+    /// <summary>
+    /// 登记第三方 Power 自己的 <c>BeforeSideTurnStart</c> 预测实现（每一方回合开始时按类型派发一次）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="RegisterSideTurnEndPower"/> 同一条纪律：只登记逐行反编译核对过的实现，
+    /// 处理函数只读写模拟状态；没登记的类型不做任何事，因此不改变原版与既有第三方内容的行为。
+    /// </remarks>
+    public static void RegisterSideTurnStartPower(string powerTypeName, SideTurnStartPowerHandler handler)
+        => SideTurnStartPowerTable[powerTypeName] = handler;
+
+    public static bool TryGetSideTurnStartPower(
+        string powerTypeName,
+        out SideTurnStartPowerHandler handler)
+        => SideTurnStartPowerTable.TryGetValue(powerTypeName, out handler!);
 
     // === 怪物行动效果 ===
 

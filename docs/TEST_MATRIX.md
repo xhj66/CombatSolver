@@ -1,5 +1,19 @@
 # CombatSolver 测试清单
 
+## 未发布：本体新增「BeforeSideTurnStart」第三方 Power 登记（2026-09-21）
+
+- 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；已部署产物反编译核对：
+  `ThirdPartyAdapterRegistry.SideTurnStartPowerHandler` 委托、`SideTurnStartPowerTable`（Ordinal）、
+  `RegisterSideTurnStartPower` / `TryGetSideTurnStartPower`，以及派发点在
+  `TurnStartPowerSupport.TriggerBeforeSideTurnStart` 里（按类型查表、`Amount > 0` 才派发、
+  派发后照常查 `HasPendingChoice`）全部在场；核心部署产物与工作区构建哈希逐字节相同（6,293,504 B）。
+- 关键事实：这个阶段**本来就有**派发点，只是原版效果按类型写死（原版 `PlatingPower` 在
+  `CurrentSide == Player && RoundNumber <= 1` 时给敌人补格挡）；`SimulatedCombatState.RoundNumber`
+  在模拟里真实推进，所以第三方 Power 可以用同一条判据。这条入口是**纯新增**：未登记的类型不做任何事。
+- 本轮**没有**用户：AFTP 侧第一家（`Deca`／`Donu` 的 `PlatedArmorPower`、`Byrd` 的 `FlightPower`）下一轮落地。
+  因此**未验证**：没有在游戏内跑过任何依赖这条分发的战斗，也没有最小差分夹具；
+  本轮证据只到「入口与派发点在已部署产物里存在」。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕自爆虫（`Exploder`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

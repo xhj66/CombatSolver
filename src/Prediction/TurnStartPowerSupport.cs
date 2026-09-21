@@ -35,6 +35,24 @@ internal static partial class TurnStartPowerSupport
         SimulatedCombatState combat,
         IReadOnlyList<Creature> participants)
     {
+        _ = participants;
+        // 第三方登记过 BeforeSideTurnStart 就在这里跑：按类型查表、未登记的类型什么都不做
+        // （与原版那些按类型写死的块并列，不改变任何既有行为）。
+        IReadOnlyList<PowerModel> thirdPartyPowers = combat.EffectivePowers();
+        for (int thirdPartyIndex = 0; thirdPartyIndex < thirdPartyPowers.Count; thirdPartyIndex++)
+        {
+            PowerModel thirdPartyPower = thirdPartyPowers[thirdPartyIndex];
+            if (thirdPartyPower.Amount <= 0
+                || !ThirdPartyAdapterRegistry.TryGetSideTurnStartPower(
+                    thirdPartyPower.GetType().Name,
+                    out ThirdPartyAdapterRegistry.SideTurnStartPowerHandler? sideTurnStart))
+            {
+                continue;
+            }
+            sideTurnStart(simulator, combat, thirdPartyPower);
+            if (combat.HasPendingChoice)
+                return true;
+        }
         // EffectivePowers 返回的数组一旦发布就不会被就地改写（失效只是把缓存字段置空，
         // 旧数组内容不变），所以先取一次快照按下标推进，与原来的 ToArray/OfType 迭代器
         // 看到的元素与顺序完全一致，只是不再复制数组、不再建迭代器。

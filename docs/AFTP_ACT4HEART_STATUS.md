@@ -982,11 +982,14 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 第五幕的 `Maw.NOMNOMNOM_MULTI`、`Hexaghost.DIVIDER` 这类 `Dynamic*AttackIntent` 之后沿用同一条路）、
 **第三方 Power 的常规（非 Late）`AfterSideTurnEnd` 登记**（`RegisterSideTurnEndPower`，派发在
 `EndTurnPowerSupport.TriggerRegular` 的原版 `switch` 之后；解锁 `SnakePlant` 的 `MalleablePower`、
-`OrbWalker` 的 `StrengthUpPower`、`Nemesis` 与 `Hexaghost`，见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13）。
+`OrbWalker` 的 `StrengthUpPower`、`Nemesis` 与 `Hexaghost`）、**第三方 Power 的 `BeforeSideTurnStart` 登记**
+（`RegisterSideTurnStartPower`，派发在 `TurnStartPowerSupport.TriggerBeforeSideTurnStart` 里；
+`combat.RoundNumber` 已在位，所以「只在第 1 回合」这类判据可原样表达；解锁 `Deca`／`Donu` 的
+`PlatedArmorPower` 与 `Byrd` 的 `FlightPower`，见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13）。
 
 **求解器本体仍要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
-② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ `BeforeSideTurnStart` 分发点（**非 Late 的
-`AfterSideTurnEnd` 已经在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7）；
+② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ 玩家侧非 Power 的回合开始特化与遗物触发（**非 Late 的 `AfterSideTurnEnd` 与第三方
+`BeforeSideTurnStart` 都已在 2026-09-21 补上**，见上）；④ 手牌病症与可打出性镜像（组 7）；
 ⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，Guardian/Lagavulin/ShelledParasite/AwakenedOne）。
 每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。

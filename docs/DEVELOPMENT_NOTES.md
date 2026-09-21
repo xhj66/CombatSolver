@@ -12,6 +12,17 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：本体新增「BeforeSideTurnStart」第三方 Power 登记（2026-09-21）
+
+- 与上一批的「常规回合末」对称：`TurnStartPowerSupport.TriggerBeforeSideTurnStart` 这个阶段本来就有派发点，
+  但原版效果按类型写死在里面（原版 `PlatingPower` 在 `CurrentSide == Player && RoundNumber <= 1` 时给敌人
+  补格挡），第三方类型落不进去。新增 `ThirdPartyAdapterRegistry.RegisterSideTurnStartPower(Power 类型名,
+  handler)`，派发在原版那些块之后、按类型查表；`combat.RoundNumber` 在模拟里真实推进
+  （`CombatBeamSolver.RoundTransition` 自增），所以「只在第 1 回合」这类判据可以原样表达。
+- 纯新增：未登记的类型与加这个入口之前完全一样。解锁 `Deca`／`Donu` 的 `PlatedArmorPower` 与
+  `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
+  文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
+- 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
 ## 未发布：第三幕自爆虫（`Exploder`）（2026-09-21）
 
 - 第三幕再补一只：`Exploder`。分支 `MOVE_BRANCH` **一次 RNG 都不抽**——回合计数 +1，没到
