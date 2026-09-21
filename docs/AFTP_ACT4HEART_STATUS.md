@@ -452,6 +452,20 @@ new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () =>
 
 ---
 
+### 2.14 第二幕：熊与尖刺、监工、强盗
+
+| 怪物 | 分支 | 适配内容 |
+| --- | --- | --- |
+| `Bear` | 无（固定循环 BEAR_HUG → LUNGE → MAUL → LUNGE） | `BEAR_HUG`：给活着的目标 `-DexReduction`（4/2）点敏捷；`LUNGE`：攻击 + 给自己 `LungeBlock`（const 9，`RequireConst` 钉死）点格挡；`MAUL` 是纯攻击，不需要行动效果 |
+| `Pointy` | 无（只有一个纯攻击行动 STAB） | **什么都不用登记**：`MultiAttackIntent(AttackDamage, 2)` 已在常量攻击表里；它的 `AfterAddedToRoom` 只是给熊的死亡事件挂了一句台词。这是第一只「零登记即完整」的第二、三幕怪物 |
+| `Taskmaster` | 无（只有一个行动） | `SCOURING_WHIP`：攻击 + `WoundCount`（3/1）张 `Wound` 进弃牌堆（`CardPilePosition.Bottom`，与源码的 `(CardPilePosition)1` 一致）；A9 及以上再给自己 1 点力量——源码写的是 `GainsStrength` = `HasAscension(A9)`，这是**整场不变**的运行期属性，按 `GremlinFat.AppliesFrail` 的既有读法直接读同一实例属性 |
+| `Mugger` | `MUG_BRANCH` + 随机分支 `AFTER_SECOND_MUG` | 与第一幕 `Looter` **同型**：`_mugCount` 播种、`SelectAfterMug` 重算、`MUG`／`BIG_SWIPE` 走 `RecordThievery` + 计数、`SMOKE_BOMB` 给 `EscapeBlock`（A8+ 17／否则 11，属性 → 静态数值成员）点格挡、`ESCAPE` 走 `CreatureEscaped` + owner-removing 声明 |
+
+四只都不需要新的本体能力（`Mugger` 复用第一幕那套、`Bear`/`Taskmaster` 用既有的一般入口），
+因此这一批的风险全在「数值/顺序有没有抄错」，逐条对照见上表。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -694,8 +708,9 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
-| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | Pointy | SnakeDagger |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13） | Repulsor、Exploder、Spiker、OrbWalker |
+| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整） | SnakeDagger |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14） | Repulsor、Exploder、Spiker、OrbWalker |
+| 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
 | 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |

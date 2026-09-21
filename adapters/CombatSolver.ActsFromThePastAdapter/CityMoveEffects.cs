@@ -1,5 +1,7 @@
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
@@ -26,7 +28,18 @@ internal static class CityMoveEffects
     /// </remarks>
     internal const string CenturionRngDrawsMember = "adapter_centurion_rng_draws";
 
-    private static readonly string[] MonsterTypes = ["Centurion", "Mystic"];
+    private static readonly string[] MonsterTypes =
+    [
+        "Centurion",
+        "Mystic",
+        "Bear",
+        "Pointy",
+        "Taskmaster",
+        "Mugger",
+    ];
+
+    /// <summary>Bear 的冲刺格挡（AFTP <c>LungeBlock</c>）。</summary>
+    private static int _bearLungeBlock;
 
     public static void Verify()
     {
@@ -34,6 +47,7 @@ internal static class CityMoveEffects
             AfpReflection.RequireMonsterType(typeName);
         // 百夫长的 Protect 要用它自己那条私有 RNG 流抽目标，核对该访问点还在。
         MonsterRngSupport.VerifyShape();
+        _bearLungeBlock = AfpReflection.RequireConst("Bear", "LungeBlock", 9);
     }
 
     public static void RegisterAll()
@@ -46,6 +60,9 @@ internal static class CityMoveEffects
             "HealAmount",
             "HealThreshold",
             "StrengthAmount");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Bear", "DexReduction");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Taskmaster", "WoundCount");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Mugger", "EscapeBlock");
 
         // Centurion.Protect：给一只随机的存活队友（一只都没有就给自己）ProtectBlock 点格挡
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Centurion", "PROTECT", CenturionProtect);
@@ -55,6 +72,165 @@ internal static class CityMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mystic", "HEAL", MysticHeal);
         // Mystic.Buff：给所有存活队友（含自己）StrengthAmount 点力量
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mystic", "BUFF", MysticBuff);
+
+        // --- 熊与尖刺（同一场遭遇「熊与尖刺」） ---
+        // Bear.BearHug：给每个活着的目标 -DexReduction 点敏捷（负数施加，与原版同型）
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Bear", "BEAR_HUG", BearHug);
+        // Bear.Lunge：攻击 + 给自己 LungeBlock 点格挡
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Bear", "LUNGE", BearLunge);
+        // Bear.Maul 是纯攻击（意图由通用攻击循环结算），不需要行动效果登记。
+        // Pointy 整只怪只有一个纯攻击行动 STAB，同样不需要行动效果；它的 AfterAddedToRoom
+        // 只是给熊的死亡事件挂了一句台词。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Mugger", "_mugCount");
+
+        // Taskmaster.ScouringWhip：攻击 + WoundCount 张 Wound 进弃牌堆（A9+ 再给自己 1 点力量）
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "Taskmaster",
+            "SCOURING_WHIP",
+            TaskmasterScouringWhip);
+
+        // --- 强盗（Mugger，与第一幕的 Looter 同型） ---
+        // Mugger.Mug / BigSwipe：偷金币 + _mugCount++
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mugger", "MUG", MuggerMug);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mugger", "BIG_SWIPE", MuggerBigSwipe);
+        // Mugger.SmokeBomb：给自己 EscapeBlock 点格挡（ValueProp.Move）
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mugger", "SMOKE_BOMB", MuggerSmokeBomb);
+        // Mugger.Escape：施法者自己离场，两侧都要声明
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Mugger", "ESCAPE", MuggerEscape);
+        ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Mugger", "ESCAPE");
+    }
+
+    /// <summary>Bear.BearHug：给每个活着的目标 <c>-DexReduction</c> 点敏捷。</summary>
+    private static bool BearHug(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.Apply<DexterityPower>(
+            player,
+            -combat.GetMonsterStaticInt(move.Owner, "DexReduction"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>Bear.Lunge：给自己 <c>LungeBlock</c> 点格挡（攻击部分由通用攻击循环结算）。</summary>
+    private static bool BearLunge(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        simulator.GainBlock(move.Owner, _bearLungeBlock, ValueProp.Move);
+        return true;
+    }
+
+    /// <summary>
+    /// Taskmaster.ScouringWhip：把 <c>WoundCount</c> 张 <c>Wound</c> 塞进目标的弃牌堆；
+    /// A9 及以上再给自己 1 点力量（源码用 <c>GainsStrength</c> = <c>HasAscension(A9)</c> 判断，
+    /// 那是整场不变的运行期属性，与 <c>GremlinFat.AppliesFrail</c> 同一读法）。
+    /// </summary>
+    private static bool TaskmasterScouringWhip(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        simulator.AddToCombat<Wound>(
+            player,
+            PileType.Discard,
+            combat.GetMonsterStaticInt(move.Owner, "WoundCount"),
+            null);
+        if (MonsterValueReader.ReadBool(
+                move.Owner.Monster ?? throw new PredictionUnsupportedException("监工缺少怪物模型。"),
+                "GainsStrength"))
+        {
+            combat.Apply<StrengthPower>(move.Owner, 1, move.Owner);
+        }
+        return true;
+    }
+
+    /// <summary>Mugger.Mug：偷完金币记一次 <c>_mugCount++</c>（与第一幕 Looter 同型）。</summary>
+    private static bool MuggerMug(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        StealGoldAndCountMug(simulator, combat, move);
+        return true;
+    }
+
+    /// <summary>Mugger.BigSwipe：与 Mug 同一套「偷金币 + 记数」。</summary>
+    private static bool MuggerBigSwipe(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        StealGoldAndCountMug(simulator, combat, move);
+        return true;
+    }
+
+    /// <summary>Mugger.SmokeBomb：给自己 <c>EscapeBlock</c>（A8+ 17／否则 11）点格挡。</summary>
+    private static bool MuggerSmokeBomb(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "EscapeBlock"),
+            ValueProp.Move);
+        return true;
+    }
+
+    /// <summary>Mugger.Escape：施法者自己离开战斗，已经偷到手的金币不会再回来。</summary>
+    private static bool MuggerEscape(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        combat.CreatureEscaped(move.Owner);
+        return true;
+    }
+
+    /// <summary>复刻 <c>Mugger.StealGold</c> + <c>_mugCount++</c>，与第一幕 Looter 同一口径。</summary>
+    private static void StealGoldAndCountMug(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move)
+    {
+        combat.RecordThievery(simulator, move.Owner);
+        combat.SetMonsterInt(
+            move.Owner,
+            "_mugCount",
+            combat.GetMonsterInt(move.Owner, "_mugCount") + 1);
     }
 
     /// <summary>

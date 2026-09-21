@@ -12,6 +12,16 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第二幕四只（Bear／Pointy／Taskmaster／Mugger）（2026-09-21）
+
+- 继续推进第二幕，一次补完四只：`Bear`（`BEAR_HUG` 负敏捷 + `LUNGE` 攻击加格挡）、`Pointy`
+  （只有纯攻击，**零登记即完整**——这是第一只「什么都不用登记」的第二、三幕怪物）、
+  `Taskmaster`（`SCOURING_WHIP` 塞 Wound + A9 及以上给自己 1 点力量）、`Mugger`（与第一幕 `Looter`
+  同型的偷金币／烟雾弹／逃跑，复用 `_mugCount` 与 `RecordThievery`）。
+- 四只都**不需要新的本体能力**：`Mugger` 复用第一幕那套，`Bear`/`Taskmaster` 用既有的行动效果与
+  静态数值成员入口；`GainsStrength` 这种「整场不变的进阶属性」按 `GremlinFat.AppliesFrail` 的既有读法
+  直接读同一实例属性。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.14。
+
 ## 未发布：第二幕开篇（Centurion + Mystic）与分支解析器读模拟状态（2026-09-21）
 
 - `ThirdPartyAdapterRegistry.MonsterBranchResolver` 的签名补了最后一个 `CombatPredictionSimulator` 参数：

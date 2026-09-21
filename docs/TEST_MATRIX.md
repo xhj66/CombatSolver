@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕四只（Bear／Pointy／Taskmaster／Mugger）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`Bear.DexReduction`／`Taskmaster.WoundCount`／`Mugger.EscapeBlock` 三条静态数值成员、
+  `BEAR_HUG`（`Apply<DexterityPower>(player, -DexReduction, owner)`）／`LUNGE`（`GainBlock(LungeBlock)`，
+  `LungeBlock` 用 `RequireConst` 钉死 9）／`SCOURING_WHIP`（`AddToCombat<Wound>(Discard, WoundCount)` +
+  `ReadBool("GainsStrength")` 后加力量）／`Mugger` 的四条行动效果与 `MUG_BRANCH` 解析器、
+  `_mugCount` 播种、`RegisterOwnerRemovingMove` 全部在场；部署产物与工作区构建哈希逐字节相同
+  （核心本轮未改）。
+- `Pointy` 本轮**没有**任何登记：它只有一个纯攻击行动，攻击已在常量攻击表里，`AfterAddedToRoom`
+  只挂了一句台词。按 §4.1 的验收口径，它是第一只「五项都不需要」的怪物。
+- **未验证**：没有在游戏内打过「熊与尖刺」「监工」「强盗」遭遇，所以负敏捷的施加、Wound 入堆位置、
+  偷金币与逃跑、`MUG_BRANCH` 的两次计数都**未实机验证**。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：第二幕开篇（Centurion + Mystic）与分支解析器读模拟状态（2026-09-21）
 
 - 求解器本体与两个适配（AFTP、Heart）Release 构建通过（0 error；仅离线还原的 NU1900 警告，

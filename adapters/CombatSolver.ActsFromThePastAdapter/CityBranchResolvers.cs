@@ -26,11 +26,12 @@ internal static class CityBranchResolvers
     {
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Centurion", "MOVE_BRANCH", Centurion);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Mystic", "MOVE_BRANCH", Mystic);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Mugger", "MUG_BRANCH", Mugger);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
-    internal static readonly string[] RegisteredMonsterTypes = ["Centurion", "Mystic"];
+    internal static readonly string[] RegisteredMonsterTypes = ["Centurion", "Mystic", "Mugger"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：都只读实机 StateLog、传入的 rng 与自己的标量字段，
@@ -40,7 +41,25 @@ internal static class CityBranchResolvers
     [
         ("Centurion", "MOVE_BRANCH"),
         ("Mystic", "MOVE_BRANCH"),
+        ("Mugger", "MUG_BRANCH"),
     ];
+
+    /// <summary>
+    /// Mugger.SelectAfterMug：与第一幕 Looter 同型——Mug／BigSwipe 出手不满两次就再来一次 Mug，
+    /// 够了就交给随机分支 <c>AFTER_SECOND_MUG</c>（50% SMOKE_BOMB／50% BIG_SWIPE，由求解器通用的
+    /// 随机分支逻辑按冻结权重抽）。这条分支不抽 RNG。
+    /// </summary>
+    private static string Mugger(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = simulator;
+        return combat.GetMonsterInt(monster.Creature, "_mugCount") < 2 ? "MUG" : "AFTER_SECOND_MUG";
+    }
 
     /// <summary>
     /// Centurion.SelectNextMove：65% 以上且最近没有连出两次保护／狂怒时，有队友就保护、没队友就狂怒；
