@@ -46,6 +46,37 @@ internal static class AfpReflection
     }
 
     /// <summary>
+    /// 核对某个类型**确实重写**了指定名字（与参数个数）的虚方法，并把这个类型取回来。
+    /// </summary>
+    /// <remarks>
+    /// 适配层登记的是「往昔之章重写了这个钩子」这个事实本身。对方把重写删掉、或改成另一个签名时，
+    /// 登记会变成一条对不存在的方法的声明，自检必须当场失败、整个适配拒绝登记
+    /// （见 docs/THIRD_PARTY_ADAPTERS.md §3.4）。<paramref name="typeName"/> 不带点时按
+    /// <c>ActsFromThePast.&lt;名字&gt;</c> 解析。
+    /// </remarks>
+    public static Type RequireOverride(string typeName, string methodName, int parameterCount)
+    {
+        Type type = typeName.Contains('.', StringComparison.Ordinal)
+            ? RequireType(typeName)
+            : Assembly.GetType($"ActsFromThePast.{typeName}", throwOnError: false)
+                ?? throw new InvalidOperationException(
+                    $"ActsFromThePast.{typeName} 不存在，往昔之章版本可能已变动。");
+        foreach (MethodInfo method in type.GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (!string.Equals(method.Name, methodName, StringComparison.Ordinal)
+                || method.GetParameters().Length != parameterCount)
+            {
+                continue;
+            }
+            if (method.IsVirtual && method.GetBaseDefinition() != method)
+                return type;
+        }
+        throw new InvalidOperationException(
+            $"{type.FullName}.{methodName}（{parameterCount} 参）不再是重写，往昔之章版本可能已变动。");
+    }
+
+    /// <summary>
     /// 核对并取回一个 <c>private const int</c>。返回值就是对方当前的常量值，
     /// 适配层用它参与运算，避免把数值抄成第二份真相。
     /// </summary>

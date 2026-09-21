@@ -322,6 +322,43 @@ new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () =>
 
 ---
 
+### 2.10 第一幕的能力与死亡钩子：补上「打赢了却报未知战损」的第二处来源
+
+第一幕适配第一版只登记了分支、行动效果与卡牌补丁，**没有登记任何 Power 与死亡钩子**。而判定链看的是
+`PredictionGap.Method` 里是否含 «Death»（§3.6），于是下面这些没登记的重写让对应的战斗一律给不出战损：
+
+| 重写 | 归属 | 复核结论 | 处理 |
+| --- | --- | --- | --- |
+| `SporeCloudPower.AfterDeath` | 真菌兽（入场时给自己挂 2 层） | owner 死亡且未被拦截时，给**所有活着的玩家**各 `Amount` 层易伤（applier = null）；一个活人都没有则直接返回 | 真镜像：`AfterDeathMirrors.Register` |
+| `FungiBeast.BeforeDeath` | 真菌兽 | 只有 `NSporeImpactVfx.Create` + Godot 定时器播粒子，无命令、无数值/状态/RNG | 登记为忽略 |
+| `Cultist.BeforeDeath` | 邪教徒 | 死亡音效（`Rng.Chaotic` 抽编号）+ 条件式台词气泡 + `Cmd.Wait(2.5)`，不下命令 | 登记为忽略 |
+| `Hexaghost.AfterDeath` | 六角幽魂 | `_visuals.HideAllOrbs/Dispose` + `NGame.ScreenShake` | 登记为忽略（其分支仍未适配，见 §2.2） |
+| `AngryPower.AfterDamageReceived` | 疯狂小鬼（入场时挂 1/2 层） | 自己挨到**有来源的攻击伤害**且真掉血时，给自己加 `Amount` 点力量；源码写的是 `props.HasFlag(Move) && !props.HasFlag(Unpowered)` | 真镜像：`AfterDamageReceivedMirrors.Register` |
+
+新增 `ExordiumHooks`（自检用新加的 `AfpReflection.RequireOverride` 核对「对方确实还重写着这个签名」）。
+求解器本体为第三方补了两个入口：`AfterDeathMirrors.Register(Type, handler)` 与
+`BeforeDeathMirrors.Register(Type, handler)` / `RegisterIgnored(Type)`；两条死亡镜像登记表都补了
+「首次分发后拒绝迟到登记」的冻结检查（与 `AfterDamageReceivedMirrors` 一致）。
+
+**批量排查方法（本轮就是这么找出上面这五条的）**：把对方每个 `CustomMonsterModel` / `CustomPowerModel`
+的 `public override` 方法列出来（脚本按类边界切文本即可），只挑名字含 «Death» 的逐个归类。
+第一幕的完整清单是：`Cultist.BeforeDeath`、`FungiBeast.AfterAddedToRoom+BeforeDeath`、
+`Guardian.BeforeDeath`（**真效果**，见下）、`Hexaghost.AfterAddedToRoom+AfterDeath`、
+`JawWorm.AfterAddedToRoom+BeforeSideTurnStart`（见下）——其中 `AfterAddedToRoom` 跑在根捕获之前，
+它的效果本来就在捕获到的根里，不需要镜像。
+
+**本轮刻意没做的两条（都在第一幕里）**：
+
+- `Guardian.BeforeDeath`：死者是守卫者且 `SharpHidePower.AttackInProgress` 时，对**攻击来源**造成
+  `Amount` 点无来源伤害。这是真效果，但守卫者本身的分支还没适配（§2.2），补偿它不会让这场战斗可解，
+  留到守護者那一批一起做。
+- `JawWorm.BeforeSideTurnStart` + `_hardModeBlockApplied`：`HardMode` 为真时第一幕之外的遭遇
+  （`TheBeyond` 的硬模式爪虫，`jawWorm.HardMode = true`）会在玩家方回合开始获得 `BellowBlock` 点格挡，
+  且开场行动取自分支状态。求解器**没有 `BeforeSideTurnStart` 这个分发点**，要做需要先补阶段镜像。
+  第一幕的爪虫 `HardMode` 为假，本条不影响第一幕。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -550,9 +587,36 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
    保证 `PredictionGaps` 为空且实机/模拟零差异；并同步 `PredictionCoverage.Baseline.cs`。
    适配层自身的回归（§2.8 的 Looter、§2.7 的形状判据）目前也还没有自动化夹具：
    `UnattendedTestRunner.AdaptedOnPlayIntegration.cs` 跑在隔离游戏进程里、接不了真实 AFTP 程序集。
-5. **往昔之章第二、三幕（未做）**：本批约定范围是「地基 + 第一幕 + 心脏」。`Mugger`、`BookOfStabbing`
-   等第二幕与第三幕怪物一律走安全失败路径；要扩展时按同一套纪律逐个来（分支、状态、行动效果、
-   常量攻击四条一起核对），不要一次全猜。
+5. **第二、三幕（范围已扩展）**：2026-09-21 需求方指示「先把所有怪都做好，然后再慢慢找 bug 修」，
+   范围从「地基 + 第一幕 + 心脏」扩到**全部 62 个 `CustomMonsterModel`**（第一幕 25、第二幕 20、
+   第三幕 17）。工作面与依赖见 §4.1；两幕此前一律走安全失败路径，按下面的队列逐批做，
+   每一批都要过「分支 + 状态 + 行动效果 + 力量镜像 + 常量攻击」五项核对。
+
+### 4.1 全部怪物的工作面
+
+清单由反编译源码按类边界切文本生成（`_build/extract_aftp_inventory.ps1` /
+`extract_aftp_powers.ps1`，输出在第一幕怪物 2508–7500 行、第二幕 9985–14300 行、
+第三幕 35612–39200 行、能力 23639–24757 行）。按**所需能力**分组，从依赖最少到最多：
+
+| 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
+| --- | --- | --- | --- | --- |
+| 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | Pointy | SnakeDagger |
+| 1 | 分支只读自身标量／队友数 | GremlinShield（缺 `MonsterModel.Rng` 抽目标） | Centurion、GremlinLeader（同缺私有 RNG）、Mystic | Repulsor、Exploder、Spiker、OrbWalker |
+| 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
+| 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | GremlinShield | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
+| 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
+| 5 | 强制改写当前行动 / 眩晕 | Guardian（`SetMoveImmediate` + `ModeShiftPower`）、Lagavulin（`CreatureCmd.Stun(…, "ATTACK")`） | ShelledParasite | AwakenedOne |
+| 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
+| 7 | 病症／可打出性镜像 | SlaverRed（`EntangledPower` + `EntangledOriginal` 病症） | — | — |
+| 8 | 预测期卡牌操作 | Hexaghost（`INFERNO` 升级全部 Burn 再塞 3 张） | — | — |
+| 9 | 非战斗内容（事件／遗物同名类，**不是怪物**） | — | — | TorchHead 之外的条目见 `_build/_aftp_model_hooks.txt` |
+
+**求解器本体要补的能力（按解锁怪物数排序）**：① 第三方怪物生成/召唤入口（组 2，8 个怪物）；
+② 私有 `MonsterModel.Rng` 的通用镜像入口（组 3，4 个）；③ `BeforeSideTurnStart` 与
+`AfterSideTurnEnd`（非 Late）两个阶段分发点（组 6）；④ 手牌病症与可打出性镜像（组 7）；
+⑤ 「强制改写当前行动 + 眩晕」的第三方入口（组 5，Guardian/Lagavulin/ShelledParasite/AwakenedOne）。
+每补一项都要按 `combat-semantic-change` 的纪律给出最小差分夹具，并在
+[第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13／§6 登记。
 
 ---
 

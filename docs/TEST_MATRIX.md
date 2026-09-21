@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：AFTP 第一幕的能力与死亡钩子（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `AfterDeathMirrors.RegisterIgnored` /
+  `BeforeDeathMirrors.RegisterIgnored` 两条第三方入口在场，适配里 `ExordiumHooks` 的
+  5 条 `RequireOverride` 自检 + `AfterDeathMirrors.Register`（孢子云）+
+  `AfterDamageReceivedMirrors.Register`（愤怒）+ 3 条 `RegisterIgnored` 全部在场；
+  部署产物与工作区构建哈希逐字节相同。
+- 新增自检入口 `AfpReflection.RequireOverride(类型名, 方法名, 参数个数)`：对方删掉重写或改签名时
+  自检失败、整个适配拒绝登记（fail-closed）。本轮 5 条签名（`AfterDeath` 4 参、
+  `AfterDamageReceived` 6 参、`BeforeDeath` 1 参）逐条对照反编译源码人工核对过，
+  **但没有在运行期调用过这个自检**（需要加载真实 AFTP 程序集）。
+- **未验证**：没有在游戏内跑过真菌兽／疯狂小鬼／邪教徒／六角幽魂的战斗，因此
+  「不再报未知战损」与「死亡时给玩家 2 层易伤」两条仍是**未实机验证**；也没有回归验证
+  「已登记为忽略的三条确实只改表现层」——那是人工复核结论。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：意图预览不再调用第三方分支选择函数（2026-09-21）
 
 - 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

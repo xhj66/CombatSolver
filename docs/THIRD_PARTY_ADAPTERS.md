@@ -478,7 +478,10 @@ ModifyHpLostMirrors.RegisterAfterOstyLate(Type modelType, Func<AbstractModel, Mo
 BeforeSideTurnEndMirrors.RegisterEarly(Type modelType, Action<AbstractModel, BeforeSideTurnEndMirrorContext> handler);
 PowerHiddenStateMirrors.Register(Type powerType, string name, Func<CombatPredictionSimulator, PowerModel, long> read);
 PowerHiddenStateMirrors.RegisterRootCapture(Type powerType, Action<CombatPredictionSimulator, PowerModel, PowerModel> capture);
+AfterDeathMirrors.Register(Type modelType, Action<AbstractModel, AfterDeathMirrorContext> handler);
 AfterDeathMirrors.RegisterIgnored(Type modelType);
+BeforeDeathMirrors.Register(Type modelType, Action<AbstractModel, BeforeDeathMirrorContext> handler);
+BeforeDeathMirrors.RegisterIgnored(Type modelType);
 ```
 
 处理器收到的是 `AbstractModel`，自己转成需要的基类（`PowerModel` 是公开类型，可用；
@@ -576,12 +579,20 @@ ThirdPartyAdapterRegistry.RegisterPureBranchSelector("你的怪物类型名", "�
 
 ```csharp
 AfterDeathMirrors.RegisterIgnored(modelType);   // 语义同原生那批 RegisterIgnored<T>()
+BeforeDeathMirrors.RegisterIgnored(modelType);  // 死亡前那一条同理，同样是「带 Death 就会吞掉胜利」
 ```
 
 这与原生的 `RegisterIgnored<KinPriest>()` 是同一种结论：**人工复核**，不是运行期可判定的性质。
 自检只能核对签名与成员是否还在，挡行为变化的是清单里的版本下限。心脏适配的
 `Act4Heart.CorruptHeart.AfterDeath`（只换背景音乐）就是这么处理的，链式后果与实证见
 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6。
+
+**两条死亡钩子都要查，别只看 `AfterDeath`。** 判定链读的是 `PredictionGap.Method`，只要方法名里带
+«Death» 就算，所以 `BeforeDeath` 上一条没登记的重写同样会让整场战斗给不出战损。往昔之章第一批适配
+就是这么漏掉真菌兽的：它同时重写了 `BeforeDeath`（纯粒子特效，该登记为忽略）与挂了
+`SporeCloudPower.AfterDeath`（死亡时给全体玩家易伤，该给真镜像），两条都缺，于是每一场打赢的真菌兽
+战斗都停在「预计战损 未知」。批量排查办法：把对方每个 `CustomMonsterModel` / `CustomPowerModel`
+的 `public override` 方法列出来，只挑名字含 «Death» 的，逐个归类为「真镜像」或「忽略」。
 
 #### `DamageCalc.Target != null` 不等于「动态伤害」
 

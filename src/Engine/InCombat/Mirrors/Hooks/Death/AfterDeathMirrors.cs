@@ -26,10 +26,34 @@ internal static class AfterDeathMirrors
         ]);
 
     private static readonly Registry Registry = CreateRegistry();
+    private static readonly object RegistrationLock = new();
+    private static bool _sealed;
 
     public static void Invoke(AbstractModel listener, AfterDeathMirrorContext context)
     {
+        Seal();
         Registry.Invoke(listener, context);
+    }
+
+    /// <summary>
+    /// 第三方适配 Mod 按运行时类型登记 <see cref="AbstractModel.AfterDeath"/> 的预测实现。
+    /// </summary>
+    /// <remarks>
+    /// 登记须在任何根捕获或首次分发之前完成，之后明确拒绝。未登记的第三方重写会在分发时记一条
+    /// <c>MethodNotMirrored</c>；方法名含 «Death» 时那条风险会让整场战斗给不出战损、
+    /// 可信度掉到「低」（见 docs/THIRD_PARTY_ADAPTERS.md §2.13）。往昔之章真菌兽的孢子云就是这一类。
+    /// </remarks>
+    public static void Register(Type modelType, Action<AbstractModel, AfterDeathMirrorContext> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (modelType.IsAbstract)
+            throw new ArgumentException("死亡后镜像需要具体运行时类型。", nameof(modelType));
+        lock (RegistrationLock)
+        {
+            if (_sealed)
+                throw new InvalidOperationException("AfterDeath 镜像必须在根捕获或首次分发之前登记。");
+            ThirdPartyMirrorRegistration.Register(Registry, modelType, handler);
+        }
     }
 
     /// <summary>
@@ -41,7 +65,24 @@ internal static class AfterDeathMirrors
     /// Without this entry an unreviewed third-party override is recorded as <c>MethodNotMirrored</c> risk, which
     /// suppresses victory acknowledgement for any method whose name contains "Death".
     /// </remarks>
-    public static void RegisterIgnored(Type modelType) => Registry.RegisterIgnored(modelType);
+    public static void RegisterIgnored(Type modelType)
+    {
+        ArgumentNullException.ThrowIfNull(modelType);
+        lock (RegistrationLock)
+        {
+            if (_sealed)
+                throw new InvalidOperationException("AfterDeath 镜像必须在根捕获或首次分发之前登记。");
+            Registry.RegisterIgnored(modelType);
+        }
+    }
+
+    private static void Seal()
+    {
+        if (Volatile.Read(ref _sealed))
+            return;
+        lock (RegistrationLock)
+            Volatile.Write(ref _sealed, true);
+    }
 
     private static Registry CreateRegistry()
     {

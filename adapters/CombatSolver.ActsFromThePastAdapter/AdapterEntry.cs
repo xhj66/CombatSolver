@@ -26,6 +26,7 @@ public static class AdapterEntry
         {
             ExordiumBranchResolvers.Verify();
             ExordiumMoveEffects.Verify();
+            ExordiumHooks.Verify();
             ExordiumStableAttacks.Verify();
             ExordiumCardPatches.Verify();
         }
@@ -37,13 +38,14 @@ public static class AdapterEntry
 
         ExordiumBranchResolvers.RegisterAll();
         ExordiumMoveEffects.RegisterAll();
+        ExordiumHooks.RegisterAll();
         ExordiumStableAttacks.RegisterAll();
         ExordiumCardPatches.RegisterAll();
         Log(
             $"[{ModId}] 往昔之章第一幕适配已登记："
             + $"行动分支 {ExordiumBranchResolvers.RegisteredMonsterTypes.Length} 个怪物、"
             + $"常量构造攻击 {ExordiumStableAttacks.RegisteredAttackCount} 条、"
-            + "行动效果见 ExordiumMoveEffects、"
+            + "行动效果见 ExordiumMoveEffects、能力与死亡钩子见 ExordiumHooks、"
             + "本体卡牌补丁见 ExordiumCardPatches（Slimed 的 classic 出牌补丁）。");
     }
 

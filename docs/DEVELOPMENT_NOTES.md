@@ -12,6 +12,22 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：AFTP 第一幕的能力与死亡钩子（2026-09-21）
+
+- 第一幕适配第一版只登记了分支、行动效果与卡牌补丁，**没登记任何 Power 与死亡钩子**。判定链看的是
+  `PredictionGap.Method` 里是否含 «Death»，于是真菌兽（`SporeCloudPower.AfterDeath` 给全体玩家 2 层
+  易伤 + `FungiBeast.BeforeDeath` 粒子特效）、邪教徒（`Cultist.BeforeDeath` 音效台词）、
+  六角幽魂（`Hexaghost.AfterDeath` 收尾动画）这些战斗打赢后一律显示「预计战损 未知」、可信度「低」。
+- 修法：`SporeCloudPower.AfterDeath` 与 `AngryPower.AfterDamageReceived`（疯狂小鬼挨到攻击加力量）
+  给出真镜像，另外三条逐行复核为纯表现层、显式登记为忽略。求解器本体补
+  `AfterDeathMirrors.Register(Type, handler)`、`BeforeDeathMirrors.Register(Type, handler)` /
+  `RegisterIgnored(Type)`，并给两条死亡镜像登记表补上「首次分发后拒绝迟到登记」的冻结检查。
+  批量排查方法（按类列出 `public override`、只挑名字含 «Death» 的逐个归类）与刻意未做的两条
+  （`Guardian.BeforeDeath`、`JawWorm.HardMode` 的 `BeforeSideTurnStart`）见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.10。
+- 范围扩展：需求方指示把往昔之章**全部 62 个怪物**都做完再慢慢找 bug；工作面、按能力分组的队列与
+  求解器本体要补的五项能力见同文档 §4.1。
+
 ## 未发布：意图预览不再调用第三方分支选择函数（2026-09-21）
 
 - 玩家报告：往昔之书的「多重刺击」第一回合显示并打出 7×15，正常应是 7×3。根因是意图预览
