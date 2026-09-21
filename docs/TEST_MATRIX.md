@@ -1,5 +1,18 @@
 # CombatSolver 测试清单
 
+## 未发布：本体新增「第三方偷牌 Power」登记（2026-09-21）
+
+- 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；已部署产物反编译核对：
+  `ThirdPartyAdapterRegistry.StolenCardPowerHandler` 委托、`StolenCardPowerTable`（Ordinal）、
+  `RegisterStolenCardPower` / `TryGetStolenCardPower`，以及 `SimulatedCombatState.Theft` 里
+  `EnsureOutstandingStolenResourcesInitialized` 与 `RecoverStolenResources` 两处的新判定都在场；
+  核心部署产物与工作区构建哈希逐字节相同（6,294,528 B；AFTP/Heart 本轮未改）。
+- 语义：终局的「未追回战利品」与「持有者死亡时核销」原先只认原版 `SwipePower`／`ThieveryPower`／
+  `HeistPower`（按精确类型写死）。新增入口让第三方偷牌 Power 也能进这两个口径；**纯新增**——
+  未登记的类型与加之前完全一样。
+- 本轮**没有**用户（`BronzeOrb` 的 STASIS 下一批接），因此**未验证**：没有在游戏内跑过任何依赖这条口径的
+  战斗，也没有最小差分夹具；证据只到「入口与两处判定在已部署产物里存在」。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第二幕蛇草（`SnakePlant`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

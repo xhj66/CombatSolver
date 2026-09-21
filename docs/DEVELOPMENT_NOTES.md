@@ -23,6 +23,18 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：本体新增「第三方偷牌 Power」登记（2026-09-21）
+
+- 为铜制球体（`BronzeOrb`）的 `STASIS`（偷走玩家最好的一张牌、球体死亡时归还）铺路：核心的终局
+  「未追回战利品」与「持有者死亡时核销」原先只认原版 `SwipePower`／`ThieveryPower`／`HeistPower`。
+  新增 `ThirdPartyAdapterRegistry.RegisterStolenCardPower(Power 类型名, hasStolenCard)`，两处判定都先问
+  第三方登记表；被偷的牌存在哪由适配层自己决定。纯新增，未登记的类型行为不变。
+- 顺带把 STASIS 需要的两个游戏侧事实反编译确认了（写进 §4.4 的缺口表）：`ListExtensions.StableShuffle`
+  ＝先 `Sort()` 再 Fisher–Yates（`num = count-1; while (num > 1) { j = rng.NextInt(num+1); swap }`），
+  `CardRarity` 枚举是 `None/Basic/Common/Uncommon/Rare/...`，所以 AFTP 的 `(int)Rarity` 4／3／2 依次
+  对应「稀有→罕见→普通」。
+- `BronzeAutomaton`／`BronzeOrb` 本体（含 STASIS 与 `StasisPower` 归还镜像）下一批接；那一批要先解决
+  「被偷的牌是对象引用，必须放进能随 Fork 重映射的预测状态」这一处设计。
 ## 未发布：第二幕蛇草（`SnakePlant`）（2026-09-21）
 
 - 收尾上一批的 `MalleablePower` 镜像：本体只差两件——`MOVE_BRANCH`（抽一次 `NextInt(100)`，`< 65` 时

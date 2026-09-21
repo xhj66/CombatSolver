@@ -797,6 +797,26 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 `MalleablePower` 的累加／兑现／回滚（§2.29）都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.31 本体新增「第三方偷牌 Power」登记（为铜制球体的 STASIS 铺路）
+
+`BronzeOrb` 的 `STASIS` 会把玩家抽牌堆／弃牌堆里最好的一张牌偷走，存进 AFTP 自己的 `StasisPower`，
+并在球体死亡时归还。核心对**原版**偷牌（`SwipePower`）与偷金币（`ThieveryPower`／`HeistPower`）的
+终局口径是按类型写死的：
+
+- `SimulatedCombatState.Theft` 的 `EnsureOutstandingStolenResourcesInitialized`（起算）与
+  `RecoverStolenResources`（持有者死亡时核销）都只认原版类型。
+
+不登记的话，AFTP 偷走的牌会**一直算作丢失**：界面「未追回战利品」和终局排序都会与实机不符。所以新增
+`ThirdPartyAdapterRegistry.RegisterStolenCardPower(Power 类型名, hasStolenCard)`：被偷的牌存在哪由适配层
+自己决定（通常在预测状态里），核心只问「这个实例现在扣着牌吗」。
+
+**这条入口是纯新增**：未登记的类型与加之前完全一样。`BronzeOrb`／`BronzeAutomaton` 本体（含 STASIS
+的偷牌与 `StasisPower` 的归还镜像）下一批接——那里的难点是**被偷的牌是对象引用**，必须放进能随 Fork
+重映射的预测状态，不能让两条分支共享同一个卡实例。
+
+**未验证**：本轮没有用户，没有在游戏内跑过任何依赖这条口径的战斗；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1130,7 +1150,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 一 | `Guardian` | `SetMoveImmediate` 式强制改行动 + `ModeShiftPower`（形态切换）+ `SharpHidePower` + `BeforeDeath`（组 4／5）。**注**：本体的 `SimulatedCombatState.ForceStunnedMove` / `ForceMonsterMove` 已经存在且适配层可直呼（publicizer），所以「强制改行动」不需要新登记点，缺的是这几个 Power 的镜像与它自己的分支 |
 | 一 | `Lagavulin` | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
 | 二 | `BronzeAutomaton` | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
-| 二 | `BronzeOrb` | `STASIS` 要**偷牌**：洗牌抽/弃牌堆、按稀有度挑、`StasisPower.Capture`（私有字段存被偷的牌）、死亡时归还。被偷牌是**对象引用**，需要一个能随 Fork 重映射的预测状态（现成参照：`Thief` 的 `SwipePower` 处理与 `NightmarePower` 的 `_nightmareSelections`） |
+| 二 | `BronzeOrb` | `STASIS` 要**偷牌**：洗牌抽/弃牌堆（`StableShuffle`＝先 `Sort` 再 Fisher–Yates，已反编译确认）、按稀有度挑（`(int)Rarity` 4／3／2 依次，已确认 `CardRarity` 枚举值）、`StasisPower` 存牌、死亡时归还。**终局口径的入口已就绪**（§2.31）；剩下的是「被偷的牌是对象引用，必须放进能随 Fork 重映射的预测状态」这一处设计 |
 | 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
 | 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | `ShelledParasite` | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |

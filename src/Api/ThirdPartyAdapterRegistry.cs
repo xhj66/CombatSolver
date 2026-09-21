@@ -218,6 +218,27 @@ internal static class ThirdPartyAdapterRegistry
         out SideTurnStartPowerHandler handler)
         => SideTurnStartPowerTable.TryGetValue(powerTypeName, out handler!);
 
+    /// <summary>
+    /// 第三方「偷牌」Power 的判定：这个 Power 实例当前是否扣着某张牌。
+    /// </summary>
+    /// <remarks>
+    /// 终局的「未追回战利品」按类型写死了原版 <c>SwipePower</c>（偷牌）与 <c>ThieveryPower</c>／
+    /// <c>HeistPower</c>（偷金币）。第三方偷牌 Power 必须在这里登记，否则它的牌既不会进终局口径、
+    /// 持有者死亡时也不会被核销——界面上会一直显示「丢了牌」，与实机不符。
+    /// 判定交给登记方：被偷的牌存在哪由它自己决定（通常在预测状态里）。
+    /// </remarks>
+    public delegate bool StolenCardPowerHandler(CombatPredictionSimulator simulator, PowerModel power);
+
+    private static readonly Dictionary<string, StolenCardPowerHandler> StolenCardPowerTable = new(StringComparer.Ordinal);
+
+    public static void RegisterStolenCardPower(string powerTypeName, StolenCardPowerHandler hasStolenCard)
+        => StolenCardPowerTable[powerTypeName] = hasStolenCard;
+
+    public static bool TryGetStolenCardPower(
+        string powerTypeName,
+        out StolenCardPowerHandler handler)
+        => StolenCardPowerTable.TryGetValue(powerTypeName, out handler!);
+
     // === 怪物行动效果 ===
 
     public static void RegisterMonsterMoveEffect(

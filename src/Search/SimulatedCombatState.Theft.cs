@@ -32,6 +32,14 @@ internal sealed partial class SimulatedCombatState
         EnsureOutstandingStolenResourcesInitialized(simulator);
         foreach (var power in EffectivePowers().Where(power => ReferenceEquals(power.Owner, dead)))
         {
+            if (ThirdPartyAdapterRegistry.TryGetStolenCardPower(
+                    power.GetType().Name,
+                    out ThirdPartyAdapterRegistry.StolenCardPowerHandler? thirdPartyStolen)
+                && thirdPartyStolen(simulator, power))
+            {
+                _outstandingStolenCards = Math.Max(0, _outstandingStolenCards.GetValueOrDefault() - 1);
+                continue;
+            }
             switch (power)
             {
                 case SwipePower { StolenCard: not null }:
@@ -60,6 +68,14 @@ internal sealed partial class SimulatedCombatState
         {
             if (!simulator.State.GetCreature(power.Owner).IsAlive)
                 continue;
+            if (ThirdPartyAdapterRegistry.TryGetStolenCardPower(
+                    power.GetType().Name,
+                    out ThirdPartyAdapterRegistry.StolenCardPowerHandler? thirdPartyStolen)
+                && thirdPartyStolen(simulator, power))
+            {
+                cards++;
+                continue;
+            }
             switch (power)
             {
                 case SwipePower { StolenCard: not null }:
