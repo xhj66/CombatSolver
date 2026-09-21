@@ -12,6 +12,22 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：AFTP 史莱姆三件套与第三方怪物生成入口（2026-09-21）
+
+- 求解器本体新增 `MonsterSpawnSupport.SpawnByType(…, Type monsterType, …, int? maxHpOverride, …)`：
+  第三方适配只能按运行期 `Type` 生成怪物，这条入口与泛型 `Spawn<T>` 逐段相同——规范实例取自
+  `ModelDb`、克隆、`CreatePredictedMonster` 掷一次初始生命（消耗 `Rng.Niche`，与实机
+  `CreatureCmd.Add` 同一条流，**不能省**）、布点、入场能力、行动 AI 准备；`maxHpOverride` 对应
+  源码 `Add` 之后的 `SetMaxHp` + `Heal` 到满。另新增 `SimulatedCombatState.EncounterSlots`
+  暴露根捕获时冻结的遭遇布点表（源码按「前缀 + 排除已占用」挑槽位，槽位决定敌人排序）。
+- AFTP 第一幕解锁 `AcidSlimeLarge` / `SpikeSlimeLarge` / `SlimeBoss`：`SplitPower` 受伤镜像
+  （掉到半血置 `_splitTriggered` + `ForceMonsterMove("SPLIT")`）、三个 `MOVE_BRANCH` 解析器、
+  `_splitTriggered` 播种、`SPLIT` 行动（杀自己 → 按前缀挑空位 → 按分裂那一刻的血量生成子代；
+  分裂出来的大型史莱姆显式补挂 `SplitPower` 以便二次分裂）、以及 `GOOP_SPRAY` /
+  `CORROSIVE_SPIT` / `FLAME_TACKLE` / `LICK` / `PREP_SLAM` 的行动效果。
+  覆盖范围、逐条对照与未覆盖项见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.11；
+  新入口的用法与三条注意事项见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+
 ## 未发布：AFTP 第一幕的能力与死亡钩子（2026-09-21）
 
 - 第一幕适配第一版只登记了分支、行动效果与卡牌补丁，**没登记任何 Power 与死亡钩子**。判定链看的是

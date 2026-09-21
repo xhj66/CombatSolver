@@ -48,6 +48,9 @@ internal static class ExordiumBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlaverBlue", "MOVE_BRANCH", SlaverBlue);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinWizard", "AFTER_CHARGE", GremlinWizard);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Looter", "MUG_BRANCH", Looter);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("AcidSlimeLarge", "MOVE_BRANCH", AcidSlimeLarge);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SpikeSlimeLarge", "MOVE_BRANCH", SpikeSlimeLarge);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlimeBoss", "MOVE_BRANCH", SlimeBoss);
 
         // 上面这些分支的选择函数都逐行复核过：只读自己的标量字段与实机 StateLog、只按源码顺序抽传入的
         // rng，不写实机状态、不下命令。声明之后预测器才能照旧在实机上调用它们推演后续回合；
@@ -69,6 +72,9 @@ internal static class ExordiumBranchResolvers
         ("SlaverBlue", "MOVE_BRANCH"),
         ("GremlinWizard", "AFTER_CHARGE"),  // SelectAfterCharge：只读 _currentCharge
         ("Looter", "MUG_BRANCH"),           // SelectAfterMug：只读 _mugCount
+        ("AcidSlimeLarge", "MOVE_BRANCH"),  // 只读 _splitTriggered + RNG + 行动历史
+        ("SpikeSlimeLarge", "MOVE_BRANCH"),
+        ("SlimeBoss", "MOVE_BRANCH"),
     ];
 
     internal static readonly string[] RegisteredMonsterTypes =
@@ -221,8 +227,63 @@ internal static class ExordiumBranchResolvers
         SimulatedCombatState combat)
         => combat.GetMonsterInt(monster.Creature, "_mugCount") < 2 ? "MUG" : "AFTER_SECOND_MUG";
 
-    // === AFTP 各敌人自带的同名辅助函数 ===
+    /// <summary>
+    /// AcidSlimeLarge.SelectNextMove：分裂已触发就直接 SPLIT；否则 40% 腐蚀喷吐／30% 冲撞／30% 舔舐，
+    /// 各自带「连续两次就换招」的重抽。
+    /// </summary>
+    private static string AcidSlimeLarge(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        if (combat.GetMonsterBool(monster.Creature, "_splitTriggered"))
+            return "SPLIT";
+        int num = rng.NextInt(100);
+        if (num < 40)
+        {
+            if (LastTwoMoves(log, "CORROSIVE_SPIT"))
+                return rng.NextFloat() < 0.6f ? "TACKLE" : "LICK";
+            return "CORROSIVE_SPIT";
+        }
+        if (num < 70)
+        {
+            if (LastTwoMoves(log, "TACKLE"))
+                return rng.NextFloat() < 0.6f ? "CORROSIVE_SPIT" : "LICK";
+            return "TACKLE";
+        }
+        if (LastMove(log, "LICK"))
+            return rng.NextFloat() < 0.4f ? "CORROSIVE_SPIT" : "TACKLE";
+        return "LICK";
+    }
 
+    /// <summary>SpikeSlimeLarge.SelectNextMove：分裂已触发就 SPLIT；否则 30% 火焰冲撞／70% 舔舐。</summary>
+    private static string SpikeSlimeLarge(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+    {
+        if (combat.GetMonsterBool(monster.Creature, "_splitTriggered"))
+            return "SPLIT";
+        int num = rng.NextInt(100);
+        if (num < 30)
+            return LastTwoMoves(log, "FLAME_TACKLE") ? "LICK" : "FLAME_TACKLE";
+        return LastMove(log, "LICK") ? "FLAME_TACKLE" : "LICK";
+    }
+
+    /// <summary>SlimeBoss.SelectNextMove：分裂已触发就 SPLIT，否则一直是粘液喷吐。不抽 RNG。</summary>
+    private static string SlimeBoss(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+        => combat.GetMonsterBool(monster.Creature, "_splitTriggered") ? "SPLIT" : "GOOP_SPRAY";
+
+    // === AFTP 各敌人自带的同名辅助函数 ===
     private static bool LastMove(IReadOnlyList<string> log, string moveId)
         => log.Count > 0 && string.Equals(log[^1], moveId, StringComparison.Ordinal);
 

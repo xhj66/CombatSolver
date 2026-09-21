@@ -3,6 +3,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
+using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Simulation;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -33,6 +34,9 @@ internal static class ExordiumMoveEffects
     private static int _gremlinFatWeakAmount;
     private static int _gremlinFatFrailAmount;
     private static int _looterEscapeBlock;
+    private static int _acidSlimeLargeSlimedCount;
+    private static int _acidSlimeLargeWeakTurns;
+    private static int _spikeSlimeLargeSlimedCount;
 
     /// <summary>GremlinWizard 的充能上限（AFTP <c>ChargeLimit</c>）。</summary>
     internal static int GremlinWizardChargeLimit { get; private set; } = 3;
@@ -54,6 +58,9 @@ internal static class ExordiumMoveEffects
         "LouseRed",
         "GremlinFat",
         "Looter",
+        "AcidSlimeLarge",
+        "SpikeSlimeLarge",
+        "SlimeBoss",
     ];
 
     public static void Verify()
@@ -70,6 +77,11 @@ internal static class ExordiumMoveEffects
         _gremlinFatWeakAmount = AfpReflection.RequireConst("GremlinFat", "WeakAmount", 1);
         _gremlinFatFrailAmount = AfpReflection.RequireConst("GremlinFat", "FrailAmount", 1);
         _looterEscapeBlock = AfpReflection.RequireConst("Looter", "EscapeBlock", 6);
+        // 大型史莱姆源码里这两处写的是字面量，同名的 private const 就是文档里的那个值；
+        // 钉死常量至少能挡住「一起改」的情形，数值真的变了也不会静默沿用旧值。
+        _acidSlimeLargeSlimedCount = AfpReflection.RequireConst("AcidSlimeLarge", "SlimedCount", 2);
+        _acidSlimeLargeWeakTurns = AfpReflection.RequireConst("AcidSlimeLarge", "WeakTurns", 2);
+        _spikeSlimeLargeSlimedCount = AfpReflection.RequireConst("SpikeSlimeLarge", "SlimedCount", 2);
         GremlinWizardChargeLimit = AfpReflection.RequireConst("GremlinWizard", "ChargeLimit", 3);
     }
 
@@ -133,6 +145,24 @@ internal static class ExordiumMoveEffects
         // Looter.Escape：CreatureCmd.Escape(Creature, true)——施法者自己离场，两侧都要声明
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Looter", "ESCAPE", LooterEscape);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Looter", "ESCAPE");
+
+        // --- 大型史莱姆与史莱姆王（分裂） ---
+        // AcidSlimeLarge.CorrosiveSpit：攻击 + 2 张 Slimed 进弃牌堆；Lick：Weak 2 回合
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("AcidSlimeLarge", "CORROSIVE_SPIT", AcidSlimeLargeCorrosiveSpit);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("AcidSlimeLarge", "LICK", AcidSlimeLargeLick);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("AcidSlimeLarge", "SPLIT", AcidSlimeLargeSplit);
+        ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("AcidSlimeLarge", "SPLIT");
+        // SpikeSlimeLarge.FlameTackle：攻击 + 2 张 Slimed；Lick：Frail（FrailTurns 是按进阶冻结的实例属性）
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SpikeSlimeLarge", "FLAME_TACKLE", SpikeSlimeLargeFlameTackle);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SpikeSlimeLarge", "LICK", SpikeSlimeLargeLick);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SpikeSlimeLarge", "SPLIT", SpikeSlimeLargeSplit);
+        ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("SpikeSlimeLarge", "SPLIT");
+        // SlimeBoss.GoopSpray：SlimedCount 张 Slimed；PrepSlam 只有台词与屏幕震动（登记成空操作，
+        // 免得 UnknownIntent 被记成「未支持意图」）；Slam 是纯攻击；Split 见下
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlimeBoss", "GOOP_SPRAY", SlimeBossGoopSpray);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlimeBoss", "PREP_SLAM", NoEffect);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlimeBoss", "SPLIT", SlimeBossSplit);
+        ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("SlimeBoss", "SPLIT");
     }
 
     /// <summary>
@@ -148,6 +178,10 @@ internal static class ExordiumMoveEffects
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("LouseRed", "StrengthAmount");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Sentry", "DazedAmount");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Cultist", "RitualAmount");
+        // SpikeSlimeLarge.FrailTurns 与 SlimeBoss.SlimedCount 是 AscensionHelper 形式的实例属性
+        //（3/2 与 5/3），根捕获时读一次，之后整场不变。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SpikeSlimeLarge", "FrailTurns");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SlimeBoss", "SlimedCount");
     }
 
     /// <summary>
@@ -160,6 +194,10 @@ internal static class ExordiumMoveEffects
         // Looter 的分支 MUG_BRANCH 只看 _mugCount（Mug／Lunge 各 +1），必须随分支 Fork、
         // 进状态指纹，否则同一场里「已经偷过两次」的个体和没偷过的会被当成同一个状态。
         ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Looter", "_mugCount");
+        // 大型史莱姆与史莱姆王的 MOVE_BRANCH 只看 _splitTriggered（由 SplitPower 的受伤镜像置位）。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("AcidSlimeLarge", "_splitTriggered");
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("SpikeSlimeLarge", "_splitTriggered");
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("SlimeBoss", "_splitTriggered");
     }
 
     // === 行动实现（与 AFTP 源码逐行对应） ===
@@ -476,6 +514,199 @@ internal static class ExordiumMoveEffects
             move.Owner,
             "_mugCount",
             combat.GetMonsterInt(move.Owner, "_mugCount") + 1);
+    }
+
+    /// <summary>往昔之章里「什么都不做」的行动（UnknownIntent 的纯表演招），登记成空操作。</summary>
+    private static bool NoEffect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        return true;
+    }
+
+    // === 大型史莱姆与史莱姆王（分裂） ===
+
+    private static bool AcidSlimeLargeCorrosiveSpit(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        AddSlimedToCombat(simulator, player, _acidSlimeLargeSlimedCount);
+        return true;
+    }
+
+    private static bool AcidSlimeLargeLick(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        Debuff<WeakPower>(simulator, combat, player, _acidSlimeLargeWeakTurns, move);
+        return true;
+    }
+
+    private static bool SpikeSlimeLargeFlameTackle(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        AddSlimedToCombat(simulator, player, _spikeSlimeLargeSlimedCount);
+        return true;
+    }
+
+    private static bool SpikeSlimeLargeLick(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        Debuff<FrailPower>(
+            simulator,
+            combat,
+            player,
+            combat.GetMonsterStaticInt(move.Owner, "FrailTurns"),
+            move);
+        return true;
+    }
+
+    private static bool SlimeBossGoopSpray(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        AddSlimedToCombat(simulator, player, combat.GetMonsterStaticInt(move.Owner, "SlimedCount"));
+        return true;
+    }
+
+    /// <summary>AcidSlimeLarge.Split：按分裂那一刻的血量生成两只中型酸液史莱姆。</summary>
+    private static bool AcidSlimeLargeSplit(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+        => SplitInto(
+            simulator,
+            combat,
+            move,
+            out killedOwner,
+            (AcidSlimeMediumType(), "acid_med", false),
+            (AcidSlimeMediumType(), "acid_med", false));
+
+    /// <summary>SpikeSlimeLarge.Split：按分裂那一刻的血量生成两只中型尖刺史莱姆。</summary>
+    private static bool SpikeSlimeLargeSplit(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+        => SplitInto(
+            simulator,
+            combat,
+            move,
+            out killedOwner,
+            (SpikeSlimeMediumType(), "spike_med", false),
+            (SpikeSlimeMediumType(), "spike_med", false));
+
+    /// <summary>
+    /// SlimeBoss.Split：按分裂那一刻的血量生成**一只大型尖刺**与**一只大型酸液**史莱姆；
+    /// 这两只自己是新的史莱姆，`AfterAddedToRoom` 会给它们各挂一份 <c>SplitPower</c>，
+    /// 求解器不会自动跑入场效果，所以这里显式补上——否则它们不会二次分裂。
+    /// </summary>
+    private static bool SlimeBossSplit(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+        => SplitInto(
+            simulator,
+            combat,
+            move,
+            out killedOwner,
+            (SpikeSlimeLargeType(), "spike_large", true),
+            (AcidSlimeLargeType(), "acid_large", true));
+
+    private static Type AcidSlimeMediumType() => AfpReflection.RequireType("ActsFromThePast.AcidSlimeMedium");
+    private static Type SpikeSlimeMediumType() => AfpReflection.RequireType("ActsFromThePast.SpikeSlimeMedium");
+    private static Type AcidSlimeLargeType() => AfpReflection.RequireType("ActsFromThePast.AcidSlimeLarge");
+    private static Type SpikeSlimeLargeType() => AfpReflection.RequireType("ActsFromThePast.SpikeSlimeLarge");
+
+    /// <summary>
+    /// 复刻 AFTP 三个 <c>Split</c> 的共同骨架：先按当前血量杀掉自己，再按遭遇布点表的前缀规则挑空位，
+    /// 逐个生成按「分裂那一刻的血量」整只出现的子史莱姆。
+    /// </summary>
+    /// <remarks>
+    /// 槽位规则与源码逐字对应：从<b>冻结的</b>布点表里取第一个以给定前缀开头、且没被活着的队友占用的槽，
+    /// 取到就标记为已占用再给下一只找（源码里 <c>slot2</c> 只在 <c>slot1</c> 找到时才计算）。
+    /// 找不到就传 <c>null</c>——源码那个分支只影响摆放位置，不影响任何数值。
+    /// </remarks>
+    private static bool SplitInto(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        out bool killedOwner,
+        params (Type MonsterType, string SlotPrefix, bool InheritsSplitPower)[] children)
+    {
+        killedOwner = false;
+        int currentHp = simulator.State.GetCreature(move.Owner).CurrentHp;
+        simulator.Kill(move.Owner);
+        if (simulator.HasPendingChoice)
+            return true;
+
+        HashSet<string> occupied = [];
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (simulator.State.GetCreature(teammate).IsAlive && teammate.SlotName is { } slot)
+                occupied.Add(slot);
+        }
+
+        ICombatPredictionEffectSink effects = combat;
+        foreach ((Type monsterType, string slotPrefix, bool inheritsSplitPower) in children)
+        {
+            string? slot = combat.EncounterSlots.FirstOrDefault(candidate =>
+                candidate.StartsWith(slotPrefix, StringComparison.Ordinal) && !occupied.Contains(candidate));
+            if (slot != null)
+                occupied.Add(slot);
+            Creature child = MonsterSpawnSupport.SpawnByType(
+                simulator,
+                combat,
+                move.Owner,
+                monsterType,
+                slot,
+                maxHpOverride: currentHp);
+            if (inheritsSplitPower)
+                effects.ApplyPower(ExordiumHooks.SplitPowerType, child, 1, child);
+        }
+
+        killedOwner = true;
+        return true;
     }
 
     // === 工具 ===

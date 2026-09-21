@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Damage;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Death;
+using CombatSolver.Engine.InCombat.Simulation;
 
 namespace CombatSolver.ActsFromThePastAdapter;
 
@@ -30,10 +31,16 @@ internal static class ExordiumHooks
     private static Type _sporeCloud = null!;
     private static Type _angry = null!;
 
+    /// <summary>
+    /// <c>SplitPower</c> 的类型，供分裂行动在生成子史莱姆之后按入场效果补挂（见 <c>SplitInto</c>）。
+    /// </summary>
+    internal static Type SplitPowerType { get; private set; } = null!;
+
     public static void Verify()
     {
         _sporeCloud = AfpReflection.RequireOverride("SporeCloudPower", "AfterDeath", 4);
         _angry = AfpReflection.RequireOverride("AngryPower", "AfterDamageReceived", 6);
+        SplitPowerType = AfpReflection.RequireOverride("SplitPower", "AfterDamageReceived", 6);
         // 只登记为忽略的三条：确认它们「还重写着」就够了，内容由下面的复核结论背书。
         AfpReflection.RequireOverride("FungiBeast", "BeforeDeath", 1);
         AfpReflection.RequireOverride("Cultist", "BeforeDeath", 1);
@@ -44,6 +51,7 @@ internal static class ExordiumHooks
     {
         AfterDeathMirrors.Register(_sporeCloud, HandleSporeCloudDeath);
         AfterDamageReceivedMirrors.Register(_angry, HandleAngryDamageReceived);
+        AfterDamageReceivedMirrors.Register(SplitPowerType, HandleSplitPower);
 
         // --- 已复核：只有表现层副作用 ---
         // FungiBeast.BeforeDeath：CreatureNode 与 NSporeImpactVfx.Create，加一个 Godot 定时器播粒子，
@@ -54,6 +62,28 @@ internal static class ExordiumHooks
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Cultist"));
         // Hexaghost.AfterDeath：_visuals.HideAllOrbs/Dispose 与 NGame.ScreenShake，纯表现。
         AfterDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Hexaghost"));
+    }
+
+    /// <summary>
+    /// <c>SplitPower.AfterDamageReceived</c>：持有者（大型史莱姆／史莱姆王）挨到真掉血的伤害、
+    /// 且血量掉到**一半或以下**时，把 <c>SplitTriggered</c> 置位并把当前行动强制改写成 <c>SPLIT</c>——
+    /// 逐字复刻源码里的 <c>SetMoveImmediate(SplitState, true)</c>。源码用整数除法比较
+    /// （<c>CurrentHp &gt; MaxHp / 2</c>），这里也用模拟状态上的两个整数。
+    /// </summary>
+    private static void HandleSplitPower(AbstractModel model, AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner || context.Result.UnblockedDamage <= 0)
+            return;
+        SimCreatureState creature = context.State.GetCreature(power.Owner);
+        if (creature.CurrentHp > creature.MaxHp / 2)
+            return;
+        if (context.CombatState is not ICombatPredictionMonsterStateSink monsterState)
+            throw new InvalidOperationException("分裂缺少可写的预测怪物状态。");
+        if (monsterState.GetMonsterBool(power.Owner, "_splitTriggered"))
+            return;
+        monsterState.SetMonsterBool(power.Owner, "_splitTriggered", true);
+        monsterState.ForceMonsterMove(power.Owner, "SPLIT");
     }
 
     /// <summary>

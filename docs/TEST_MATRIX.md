@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：AFTP 史莱姆三件套与第三方怪物生成入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `MonsterSpawnSupport.SpawnByType`
+  （`ModelDb.GetById<MonsterModel>(ModelDb.GetId(monsterType)).ToMutable()` + `maxHpOverride`
+  覆盖最大生命）在场；适配里三个 `MOVE_BRANCH` 解析器、`_splitTriggered` 播种、
+  `SPLIT` 行动（`SplitInto` 用 `EncounterSlots` 前缀挑槽 + `SpawnByType` + 显式补挂
+  `SplitPower`）、`SplitPower` 受伤镜像（`SetMonsterBool` + `ForceMonsterMove("SPLIT")`）
+  与三个 `RegisterOwnerRemovingMove` 全部在场；部署产物与工作区构建哈希逐字节相同。
+- 与源码的对应关系逐条核对过：槽位前缀（`acid_med` / `spike_med` / `spike_large` / `acid_large`
+  对得上遭遇定义的 `Slots` 表）、`Kill` 的 `force` 缺省与源码 `Kill(c, false)` 一致、
+  `maxHpOverride` 之前的初始生命抽样没有被省掉。
+- **未验证**：没有在游戏内打过任何一场史莱姆战斗，所以「分裂发生在正确的回合」
+  「子代血量等于分裂那一刻的血量」「子代能二次分裂」「分裂后战斗不提前判胜」四条都是**未实机验证**；
+  也没有最小差分夹具（AFTP 程序集接不进无人测试的隔离进程）。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：AFTP 第一幕的能力与死亡钩子（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

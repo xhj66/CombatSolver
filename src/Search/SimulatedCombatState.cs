@@ -553,6 +553,16 @@ internal sealed partial class SimulatedCombatState
     }
     public bool BattlewornDummyTimedOut => _battlewornDummyTimedOut;
     public EncounterModel? Encounter => _encounter;
+
+    /// <summary>
+    /// 根捕获时冻结的遭遇布点表（顺序即敌人排序依据）。
+    /// </summary>
+    /// <remarks>
+    /// 第三方适配在「按源码的前缀规则挑一个空位」时要用它——源码读的是
+    /// <c>CombatState.Encounter.Slots</c>，而 worker 里不能再去读实机遭遇模型。空数组表示这场遭遇没有布点表
+    /// （源码那里拿到的是 <c>null</c>，会退回「不带布点生成」的分支）。
+    /// </remarks>
+    public IReadOnlyList<string> EncounterSlots => _encounterSlots;
     public IReadOnlyList<Creature> EscapedCreatures => _escapedCreatures;
     public IReadOnlyList<Creature> CreaturesOnCurrentSide => GetCreaturesOnSide(CurrentSide);
     public IReadOnlyList<Creature> HittableEnemies => _deathPhases == null

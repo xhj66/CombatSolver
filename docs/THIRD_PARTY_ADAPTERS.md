@@ -498,7 +498,8 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterMonsterStateMembers(怪物类型名, 成员名…)` | 会变、且被分支/效果依赖的标量，根捕获时播种、随 Fork、进指纹 |
 | `RegisterStaticIntMembers(怪物类型名, 成员名…)` | 只在根捕获读一次的静态数值 |
 | `RegisterStableAttack(怪物类型名, 行动 Id)` | 该行动的攻击数值在意图构造时即已固定（`MultiAttackIntent(常量, 常量)` 一类），压掉预测器的「动态伤害」误报。**运行期会核对意图形状**，见下 |
-| `RegisterOwnerRemovingMove(怪物类型名, 行动 Id)` | 该行动把**施法者自己移出战斗**（逃跑／脱战）。效果侧由登记方在处理器里调 `CreatureEscaped`，这一条负责让意图预测侧停止给它排后续回合 |
+| `RegisterOwnerRemovingMove(怪物类型名, 行动 Id)` | 该行动把**施法者自己移出战斗**（逃跑／脱战，或先杀掉自己再留下生成物）。效果侧由登记方在处理器里调 `CreatureEscaped`（逃跑）或置 `killedOwner`（自杀），这一条负责让意图预测侧停止给它排后续回合 |
+| `MonsterSpawnSupport.SpawnByType(…, Type 怪物类型, …)` | 按**运行时类型**生成第三方怪物（召唤／分裂／复活）。见下 |
 | `RegisterTurnStartPower(Power 类型名, handler)` | 第三方 Power 在自己那一方回合开始时的状态重置 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
@@ -559,6 +560,38 @@ ThirdPartyAdapterRegistry.RegisterPureBranchSelector("你的怪物类型名", "�
 做法是把实机实例上的流整份搬进一个可 Fork 的预测状态（`IPredictionStateForkable`），
 在预测里**照源码的抽样顺序**复刻，并把已抽次数写进一个自建的怪物标量成员好让指纹看得见进度。
 球位/几率这种条件一定要连**短路顺序**一起照抄——「不抽」和「抽了但没走那条路」是两种不同的状态。
+
+#### 生成第三方怪物：`SpawnByType`
+
+召唤、分裂、复活都要在模拟里凭空造出一只**你的**怪物。泛型入口 `<T>` 你用不了（类型只在运行期按全名
+查得到），所以有按 `Type` 的版本：
+
+```csharp
+Creature child = MonsterSpawnSupport.SpawnByType(
+    simulator,
+    combat,
+    source: move.Owner,          // 施法者，用于入场能力与遗物联动
+    monsterType: mediumSlimeType, // 反射拿到的 Type
+    slot: "acid_med_1",           // 遭遇布点表里的槽位，可为 null
+    maxHpOverride: currentHp);    // 对应源码里 Add 之后的 SetMaxHp + Heal 到满
+```
+
+它与求解器自己用的泛型路径逐段相同：规范实例取自 `ModelDb`、克隆、`CreatePredictedMonster`
+**掷一次初始生命**（消耗 `Rng.Niche`——源码的 `CreatureCmd.Add` 也会掷，所以这一步不能省，
+否则随机流与实机错位）、布点、原版入场能力与遗物联动、行动 AI 准备。
+`maxHpOverride` 在**掷完之后**覆盖最大生命并把血补满，与源码 `SetMaxHp(n)` + `Heal(n, true)` 等价。
+
+三件要自己负责的事：
+
+1. **入场效果不会被自动执行。** 求解器只对原版类型写死了入场能力；你的 `AfterAddedToRoom` 不会被调。
+   需要它做的事（例如分裂出来的大史莱姆要再挂一份分裂能力）由你在生成后自己施加。
+2. **布点自己按源码规则挑。** 冻结的布点表在 `SimulatedCombatState.EncounterSlots`；源码里
+   「前缀匹配 + 排除存活队友已占用的槽」这套规则照抄即可，挑不到就传 `null`。
+   槽位决定敌人的排序，进而影响「第一个敌人」这类取目标行为，别一律传给 `NextSlot()`。
+3. **自己的离场自己结算。** 分裂／自爆这类「先杀掉自己再留下生成物」的行动，
+   在处理器里 `simulator.Kill(owner)`（`force` 与源码的 `CreatureCmd.Kill(c, false)` 对齐）后
+   把 `killedOwner` 置真，死亡结算才会照常跑；同时用 `RegisterOwnerRemovingMove` 声明出去，
+   预览才不会在它死后继续给它排行动。
 
 #### 阶段缺口要显式记下来
 

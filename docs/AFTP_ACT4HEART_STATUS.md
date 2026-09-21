@@ -72,18 +72,20 @@
 | SlaverBlue | MOVE_BRANCH | StateLog + MonsterAi RNG |
 | GremlinWizard | AFTER_CHARGE | `_currentCharge`（已播种；CHARGING 自增 / ULTIMATE_BLAST 归零） |
 | Looter | MUG_BRANCH | `_mugCount`（已播种；MUG／LUNGE 各 +1），见 §2.8 |
+| AcidSlimeLarge | MOVE_BRANCH | `_splitTriggered`（已播种；`SplitPower` 受伤镜像置位），见 §2.11 |
+| SpikeSlimeLarge | MOVE_BRANCH | 同上 |
+| SlimeBoss | MOVE_BRANCH | 同上（另外整场 `GOOP_SPRAY`，见 §2.11） |
 
 以上分支逻辑逐字对照 AFTP 源码（`SelectNextMove` / `SelectAfterCharge` / `SelectAfterMug`）复核，
 行动 Id 常量与分支节点 Id 均已核对字面值。
 
-### 2.2 走安全失败路径的怪物（9）
+### 2.2 走安全失败路径的怪物（5）
 
 下列怪物的分支**依赖尚未建模的状态**，因此刻意不登记，保持抛
 `PredictionUnsupportedException`（装一半比不装更糟）：
 
 | 怪物 | 分支 Id | 还缺什么 |
 | --- | --- | --- |
-| AcidSlimeLarge / SpikeSlimeLarge / SlimeBoss | MOVE_BRANCH | `SplitTriggered`（≤50% HP 触发，需要伤害钩子镜像）+ 行动被强制改写成 `SPLIT` |
 | SlaverRed | MOVE_BRANCH | `_usedEntangle`；更要紧的是 `EntangledPower`（给玩家手牌打 `EntangledOriginal` 病症，禁止打出攻击牌），求解器没有对应的可打出性镜像 |
 | Hexaghost | MOVE_BRANCH | `_orbActiveCount`（可建模）＋ `DIVIDER` 的伤害由 `ACTIVATE` 按玩家血量现算（`DynamicMultiAttackIntent`），以及 `INFERNO` 的「升级全部 Burn + 再塞 3 张升级 Burn」，后者涉及预测期卡牌升级 |
 | Guardian | OFFENSIVE_BRANCH | `_isOpen` / `CloseUpTriggered` / `_pendingModeShift` + `ModeShiftPower`（受伤累计到阈值触发）、`SharpHidePower`，以及模式切换时的 `SetMoveImmediate(_closeUpState)` |
@@ -356,6 +358,34 @@ new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () =>
   （`TheBeyond` 的硬模式爪虫，`jawWorm.HardMode = true`）会在玩家方回合开始获得 `BellowBlock` 点格挡，
   且开场行动取自分支状态。求解器**没有 `BeforeSideTurnStart` 这个分发点**，要做需要先补阶段镜像。
   第一幕的爪虫 `HardMode` 为假，本条不影响第一幕。
+
+---
+
+### 2.11 史莱姆三件套：分裂（第三方怪物生成的第一批）
+
+`AcidSlimeLarge` / `SpikeSlimeLarge` / `SlimeBoss` 共用一套形状：入场时各挂一份 `SplitPower`，
+血量掉到**一半或以下**时把 `_splitTriggered` 置位、并把当前行动强制改写成 `SPLIT`，
+执行 `SPLIT` 时杀掉自己、按「分裂那一刻的血量」生成子史莱姆。
+
+| 环节 | AFTP 源码 | 适配 |
+| --- | --- | --- |
+| `SplitPower.AfterDamageReceived` | `target == Owner && UnblockedDamage > 0 && CurrentHp <= MaxHp / 2` → `SplitTriggered = true` + `SetMoveImmediate(SplitState, true)` | `AfterDamageReceivedMirrors.Register`：模拟状态上比血量（整数除法），`SetMonsterBool("_splitTriggered")` + `ForceMonsterMove("SPLIT")` |
+| `MOVE_BRANCH` | 三个都是「`SplitTriggered` → SPLIT」，另两个再按源码概率选招（0.6f／0.4f／30% 的重抽顺序逐条照抄） | `ExordiumBranchResolvers` 三个解析器（都复核为纯读取，已声明放行给预览） |
+| `_splitTriggered` | 三个怪物各自的私有 bool | 登记为**怪物标量状态**（随分支 Fork、进指纹与续用核对） |
+| `SPLIT` | `CreatureCmd.Kill(自己)` → 按遭遇布点表的前缀挑空位 → `CreatureCmd.Add` + `SetMaxHp(当前血量)` + `Heal(当前血量)` | `SplitInto`：`simulator.Kill(owner)`（`force` 缺省，与源码的 `Kill(c, false)` 一致）→ 前缀挑空位 → `MonsterSpawnSupport.SpawnByType(..., maxHpOverride: 当前血量)`；`killedOwner = true` 让死亡结算照常跑 |
+| 子代血量的两次抽样 | 先由 `CreatureCmd.Add` 按 `Min/MaxInitialHp` 掷一次初始生命，随后才被 `SetMaxHp` 覆盖 | `SpawnByType` 里的 `CreatePredictedMonster` 掷同一次（消耗 `Rng.Niche`，与实机同一条流），**不能省**——省掉会让 Niche 流与实机错位 |
+| 二次分裂 | 生成出来的大型史莱姆靠自己的 `AfterAddedToRoom` 再挂一份 `SplitPower` | 求解器不跑第三方 `AfterAddedToRoom`，`SplitInto` 对带 `InheritsSplitPower` 的子代显式 `ApplyPower(SplitPower, 1)` |
+| 布点 | `Encounter.Slots.FirstOrDefault(s => s.StartsWith("acid_med") && !occupied)` | 新增 `SimulatedCombatState.EncounterSlots`（根捕获时冻结的数组），前缀与占用规则逐字照抄；挑不到就传 `null`（源码那个分支只影响摆放位置） |
+| 顺带补的招 | `GOOP_SPRAY`（`SlimedCount` 张 Slimed）、`CORROSIVE_SPIT`/`FLAME_TACKLE`（各 2 张）、`LICK`（Weak 2／Frail `FrailTurns`）、`PREP_SLAM`（纯表演，登记成空操作） | `ExordiumMoveEffects`；`SlimedCount` 与 `FrailTurns` 是按进阶冻结的实例属性，走 `RegisterStaticIntMembers`，三个字面量走 `RequireConst` 钉死 |
+
+**求解器本体新增能力**：`MonsterSpawnSupport.SpawnByType(…, Type monsterType, …, int? maxHpOverride, …)`——
+按**运行时类型**生成第三方怪物（规范实例取自 `ModelDb`），与泛型 `Spawn<T>` 走同一条路。
+这是「第三方怪物生成／召唤」这一整类的第一批用户：第二幕的机械傀儡球、收集者、小鬼头目与
+第三幕的复活／召唤都等它（§4.1 组 2）。
+
+**未覆盖**：`SlimeBoss` 的 `ShouldStopCombatFromEnding => true`（分裂前不让战斗结束）**没有**单独镜像，
+因为求解器那一处走的是原生 `Hook.ShouldStopCombatFromEnding(State.CombatState)`，会在**模拟的**
+监听者列表上分发，`SplitPower` 的实现是纯返回 `true`，本来就读得对。
 
 ---
 

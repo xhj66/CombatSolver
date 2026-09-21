@@ -220,10 +220,11 @@ internal static class ThirdPartyAdapterRegistry
     /// <see cref="MonsterMoveEffects.RemovesOwner"/> 那张写死的表）。
     /// </summary>
     /// <remarks>
+    /// 两类都算：逃跑／脱战，以及「先杀掉自己再留下生成物」的自杀式行动（史莱姆分裂就是这样）。
     /// 两侧都要这个事实，而且用的是两个不同的问题：行动效果侧在回放里把怪物移出 roster
-    /// （由登记方自己在处理器里调用 <c>CreatureEscaped</c>），意图预测侧则在往后推算回合时
-    /// 让这个个体退出，不再给它排后续行动。只登记一半的话，玩家会在它跑了之后还看到一条
-    /// 不存在的意图。
+    /// （逃跑由登记方调用 <c>CreatureEscaped</c>，自杀由 <c>killedOwner</c> 走死亡结算），
+    /// 意图预测侧则在往后推算回合时让这个个体退出，不再给它排后续行动。只登记一半的话，
+    /// 玩家会在它已经离场之后还看到一条不存在的意图。
     /// </remarks>
     public static void RegisterOwnerRemovingMove(string monsterTypeName, string moveId)
         => OwnerRemovingMoveTable.Add((monsterTypeName, moveId));
