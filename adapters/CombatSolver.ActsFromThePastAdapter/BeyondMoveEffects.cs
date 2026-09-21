@@ -54,12 +54,12 @@ internal static class BeyondMoveEffects
         "Lagavulin",
         "WrithingMass",
         "TimeEater",
+        "Hexaghost",
     ];
 
     /// <summary>AFTP 自己的 <c>TimeWarpPower</c>（时间吞噬者的「时间扭曲」）与 <c>DrawReductionPower</c>。</summary>
     private static Type _timeWarpPowerType = null!;
     private static Type _drawReductionType = null!;
-
     /// <summary>时间吞噬者 RIPPLE 的三减益层数（AFTP <c>DebuffTurns</c>）与 HEAD_SLAM 的 Slimed 张数。</summary>
     private static int _timeEaterDebuffTurns;
     private static int _timeEaterSlimedCount;
@@ -521,6 +521,200 @@ internal static class BeyondMoveEffects
         // 它的 ModifyHandDraw 由核心的原版钩子路径直接调用**影子状态**里的 Power（与 ModifyDamage 同一机制），
         // 不需要镜像；只有持续时间递减要走我们自己的常规回合末入口（TickDurations 只认原版那几个类型）。
         ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("DrawReductionPower", DrawReductionTurnEnd);
+
+        // --- 六角幽魂（Hexaghost，第一幕首领） ---
+        // 开场 _activated/_burnUpgraded/_orbActiveCount 都在 AfterAddedToRoom（已在根里）；初始行动是 ACTIVATE，
+        // 之后被强制走 DIVIDER，再进 MOVE_BRANCH。四个标量都进状态名单。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers(
+            "Hexaghost",
+            "_activated",
+            "_burnUpgraded",
+            "_orbActiveCount",
+            "_dividerDamage");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Hexaghost", "StrengthAmount", "SearBurnCount");
+        // DIVIDER 的段数固定 6、伤害是 ACTIVATE 当时按玩家平均生命算出来的 _dividerDamage（现算）。
+        ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("Hexaghost", "DIVIDER", HexaghostDivider);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "ACTIVATE", HexaghostActivate);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "DIVIDER", HexaghostDeactivateOrbs);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "TACKLE", HexaghostActivateOrb);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "INFLAME", HexaghostInflame);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "SEAR", HexaghostSear);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Hexaghost", "INFERNO", HexaghostInferno);
+        // AfterDeath 早已在 ExordiumHooks 登记为忽略（只隐藏球体与震屏）；它同样没有 BeforeDeath 重写。
+    }
+
+    /// <summary>Hexaghost.DIVIDER：段数固定 6，伤害是当时算好的 <c>_dividerDamage</c>。</summary>
+    private static BranchMonsterAttack HexaghostDivider(
+        SimulatedCombatState combat,
+        MonsterModel monster)
+        => new(combat.GetMonsterInt(monster.Creature, "_dividerDamage"), 6);
+
+    /// <summary>
+    /// Hexaghost.Activate：置 `_activated`、把球体计数拉到 6，并按**存活玩家的当前生命**算 DIVIDER 伤害
+    /// （源码 <c>(int)(平均生命 / 12) + 1</c>；本 Mod 只支持单人，平均即该玩家）。
+    /// </summary>
+    private static bool HexaghostActivate(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterBool(move.Owner, "_activated", true);
+        combat.SetMonsterInt(move.Owner, "_orbActiveCount", 6);
+        int hp = simulator.State.GetCreature(player).CurrentHp;
+        combat.SetMonsterInt(move.Owner, "_dividerDamage", hp / 12 + 1);
+        return true;
+    }
+
+    /// <summary>Hexaghost.Divider / Inferno 收尾：把所有球体熄灭（计数归零）。</summary>
+    private static bool HexaghostDeactivateOrbs(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(move.Owner, "_orbActiveCount", 0);
+        return true;
+    }
+
+    /// <summary>Hexaghost.Tackle / Sear / Inflame 收尾：点亮一个球体（计数 +1）。</summary>
+    private static bool HexaghostActivateOrb(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(
+            move.Owner,
+            "_orbActiveCount",
+            combat.GetMonsterInt(move.Owner, "_orbActiveCount") + 1);
+        return true;
+    }
+
+    /// <summary>Hexaghost.Inflame：自己 12 格挡（`Move`）＋ `StrengthAmount` 点力量，然后点亮一个球体。</summary>
+    private static bool HexaghostInflame(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        simulator.GainBlock(move.Owner, 12, ValueProp.Move);
+        combat.Apply<StrengthPower>(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "StrengthAmount"),
+            move.Owner);
+        HexaghostActivateOrb(simulator, combat, move, player, plannedChoices, out _);
+        return true;
+    }
+
+    /// <summary>
+    /// Hexaghost.Sear：攻击之后往弃牌堆底部塞 <c>SearBurnCount</c> 张 Burn；**已经升级过 Burn 之后**
+    /// （`_burnUpgraded`）塞的是**已升级**的 Burn，再点亮一个球体。
+    /// </summary>
+    private static bool HexaghostSear(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        HexaghostAddBurns(
+            simulator,
+            combat,
+            player,
+            combat.GetMonsterStaticInt(move.Owner, "SearBurnCount"),
+            combat.GetMonsterBool(move.Owner, "_burnUpgraded"));
+        HexaghostActivateOrb(simulator, combat, move, player, plannedChoices, out _);
+        return true;
+    }
+
+    /// <summary>
+    /// Hexaghost.Inferno：攻击之后把玩家手牌／抽牌堆／弃牌堆里**所有可升级的 Burn** 升级，再塞 3 张
+    /// **已升级**的 Burn 进弃牌堆底部，置 `_burnUpgraded`，最后熄灭所有球体。
+    /// </summary>
+    /// <remarks>
+    /// 源码是先 <c>UpgradeInternal</c> 再入堆；这里用「入堆后立刻升级」表达——两者对牌堆内容等价，
+    /// 差别只在「生成牌」那条钩子在升级前被派发（已在 docs/AFTP_ACT4HEART_STATUS.md §2.42 记明）。
+    /// </remarks>
+    private static bool HexaghostInferno(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        Player? targetPlayer = player.Player ?? player.PetOwner;
+        if (targetPlayer is null)
+            return true;
+        SimPlayerCombatState playerState = simulator.State.GetPlayerCombatState(targetPlayer);
+        List<PredictedCard> burns =
+        [
+            .. playerState.Hand.Cards.Where(static card => card.Preview is Burn),
+            .. playerState.DrawPile.Cards.Where(static card => card.Preview is Burn),
+            .. playerState.DiscardPile.Cards.Where(static card => card.Preview is Burn),
+        ];
+        foreach (PredictedCard burn in burns)
+        {
+            burn.MutablePreview.UpgradeInternal();
+            burn.MutablePreview.FinalizeUpgradeInternal();
+        }
+        HexaghostAddBurns(simulator, combat, player, 3, upgraded: true);
+        combat.SetMonsterBool(move.Owner, "_burnUpgraded", true);
+        HexaghostDeactivateOrbs(simulator, combat, move, player, plannedChoices, out _);
+        return true;
+    }
+
+    /// <summary>
+    /// 往弃牌堆底部塞 <paramref name="count"/> 张 Burn；<paramref name="upgraded"/> 为真时逐张升级
+    /// （源码在 <c>BurnUpgradePatch.AllowBurnUpgrade</c> 打开时创建的就是升级版 Burn）。
+    /// </summary>
+    private static void HexaghostAddBurns(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        Creature player,
+        int count,
+        bool upgraded)
+    {
+        _ = combat;
+        Player? targetPlayer = player.Player ?? player.PetOwner;
+        if (targetPlayer is null || count <= 0)
+            return;
+        IReadOnlyList<SimCardPileAddResult> added = simulator.CreateAndAddGeneratedCardsToCombat<Burn>(
+            targetPlayer,
+            PileType.Discard,
+            count,
+            null,
+            CardPilePosition.Bottom);
+        if (!upgraded)
+            return;
+        foreach (SimCardPileAddResult result in added)
+        {
+            result.CardAdded.MutablePreview.UpgradeInternal();
+            result.CardAdded.MutablePreview.FinalizeUpgradeInternal();
+        }
     }
 
     /// <summary>

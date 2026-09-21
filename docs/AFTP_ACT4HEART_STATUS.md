@@ -1030,6 +1030,32 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 回血／格挡都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.42 第一幕首领：六角幽魂（`Hexaghost`）
+
+> 顺带更正 §4.4 的一处误判：那儿说它还需要 `AfterSideTurnEnd`（非 Late）——反编译读完发现它**没有**那个重写，
+> 只需要 `_orbActiveCount` 的播种、`DIVIDER` 的现算与 `INFERNO` 的 Burn 升级。
+
+| 部位 | 源码（`ActsFromThePast.Hexaghost`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 只把 `_activated`／`_burnUpgraded`／`_orbActiveCount` 归零 | 不需要代码（已在根里） |
+| 行动机 | 初始状态 `ACTIVATE` → **强制** `DIVIDER` → `MOVE_BRANCH`（由状态机表达，不需要适配） | — |
+| `MOVE_BRANCH` | **一次 RNG 都不抽**：按 `_orbActiveCount` 查表（0 SEAR／1 TACKLE／2 SEAR／3 INFLAME／4 TACKLE／5 SEAR／6 INFERNO／其它 SEAR） | `BeyondBranchResolvers.Hexaghost`；只读计数 → **已声明为纯读取** |
+| `ACTIVATE` | 置 `_activated`、计数拉到 6，并按**存活玩家当前生命**算 `_dividerDamage = (int)(平均生命/12) + 1` | `HexaghostActivate`（本 Mod 只支持单人，平均即该玩家；生命读模拟状态）；四个标量进状态名单 |
+| `DIVIDER` | 6 段 `_dividerDamage`，收尾熄灭所有球体 | 伤害走 `RegisterMonsterAttackValues("Hexaghost","DIVIDER", …)`（段数固定 6）；收尾 `HexaghostDeactivateOrbs` |
+| `TACKLE` | `MultiAttackIntent(FireTackleDamage, 2)`＋点亮一个球体 | 攻击已在常量表；`HexaghostActivateOrb` |
+| `INFLAME` | 自己 12 格挡（`Move`）＋ `StrengthAmount` 力量＋点亮一个球体 | `HexaghostInflame`（力量走静态数值成员） |
+| `SEAR` | 攻击 6 ＋ 往弃牌堆底部塞 `SearBurnCount` 张 Burn＋点亮一个球体 | `HexaghostSear`；**已经升级过 Burn 之后塞的是升级版 Burn**（源码的 `_burnUpgraded` 分支） |
+| `INFERNO` | 6 段 `InfernoDamage` ＋ 把玩家手牌／抽牌堆／弃牌堆里**所有可升级的 Burn** 升级、再塞 **3 张升级版 Burn** 进弃牌堆底部＋置 `_burnUpgraded`＋熄灭所有球体 | `HexaghostInferno`：升级用核心既有的 `MutablePreview.UpgradeInternal()` ＋ `FinalizeUpgradeInternal()`（与药水／Dampen 同一路）；三点差别记在下方 |
+| `AfterDeath` | 隐藏球体＋震屏 | 早已在 `ExordiumHooks` 登记为忽略；它**没有** `BeforeDeath` 重写 |
+
+**一处表达差别（已记明）**：源码先把新建的 Burn 升级再入堆，这里用「入堆后立刻升级」表达——牌堆内容等价，
+差别只在「生成牌」那条钩子在升级前被派发；`BurnUpgradePatch.AllowBurnUpgrade` 这个开关的语义（允许升级
+Burn）在预测里由「直接调用升级」等价表达（不依赖那张补丁）。
+
+**未验证**：没有在游戏内打过「六角幽魂」遭遇，球体计数的六档查表、`DIVIDER` 伤害的平均生命口径、
+Burn 升级与「升级后再塞的是升级版」都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1359,7 +1385,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 幕 | 怪物 | 缺什么 |
 | --- | --- | --- |
 | 一 | `SlaverRed` | 手牌**病症与可打出性**镜像（`EntangledPower` + `EntangledOriginal` 病症，组 7）——需要本体的「卡牌可打出性」入口 |
-| 一 | `Hexaghost` | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
+| 一 | ~~`Hexaghost`~~（已适配 §2.42；§4.4 原先记的「需要 AfterSideTurnEnd」是误判） | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
 | 一 | `Guardian` | `SetMoveImmediate` 式强制改行动 + `ModeShiftPower`（形态切换）+ `SharpHidePower` + `BeforeDeath`（组 4／5）。**注**：本体的 `SimulatedCombatState.ForceStunnedMove` / `ForceMonsterMove` 已经存在且适配层可直呼（publicizer），所以「强制改行动」不需要新登记点，缺的是这几个 Power 的镜像与它自己的分支 |
 | 一 | ~~`Lagavulin`~~（已适配 §2.39） | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |

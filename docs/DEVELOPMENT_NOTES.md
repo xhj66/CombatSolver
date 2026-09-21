@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第一幕首领六角幽魂（`Hexaghost`）（2026-09-21）
+
+- 分支 `MOVE_BRANCH` 一次 RNG 都不抽（按 `_orbActiveCount` 查表），声明为纯读取；初始行动 ACTIVATE 与随后被
+  强制的 DIVIDER 由状态机表达；ACTIVATE 按**存活玩家当前生命**算 `_dividerDamage`（单人即该玩家，生命读模拟
+  状态），DIVIDER 的伤害走动态攻击值入口（段数固定 6）；TACKLE/INFLAME/SEAR 收尾各点亮一个球体、
+  DIVIDER/INFERNO 收尾熄灭全部；SEAR 与 INFERNO 里 Burn 的塞入与**升级**用核心既有的
+  `MutablePreview.UpgradeInternal()` + `FinalizeUpgradeInternal()`（与药水／Dampen 同一路），并复刻
+  「升级过 Burn 之后塞的是升级版」这条分支。
+- 一处表达差别：源码先把新建 Burn 升级再入堆，这里入堆后立刻升级（牌堆内容等价，生成牌钩子会在升级前被派发）。
+- 顺带更正 §4.4：它没有 `AfterSideTurnEnd` 重写，原先那条缺口记错了（`AfterDeath` 早已登记为忽略）。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.42。
 ## 未发布：第三幕首领时间吞噬者（`TimeEater`）（2026-09-21）
 
 - 分支六档（半血且没加速过就直接 HASTE、不抽 RNG；其余按 `NextInt(100)` 落档，档内失败再抽

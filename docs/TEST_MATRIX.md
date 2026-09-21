@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第一幕首领六角幽魂（`Hexaghost`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.Hexaghost`（按 `_orbActiveCount` 的六档查表、无 RNG、
+  声明为纯读取）、四个状态成员与两个静态数值成员、`RegisterMonsterAttackValues("Hexaghost","DIVIDER", …)`
+  （段数 6）、ACTIVATE／DIVIDER／TACKLE／INFLAME／SEAR／INFERNO 六个行动效果（含
+  `MutablePreview.UpgradeInternal()` + `FinalizeUpgradeInternal()` 的 Burn 升级与「升级后再塞升级版」分支）
+  全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 109,056 B；核心本轮未改）。
+- 更正 §4.4 的一处误判：它**没有** `AfterSideTurnEnd` 重写（`AfterDeath` 早已登记为忽略），原先那条缺口记错了；
+  真正要补的是 `_orbActiveCount` 播种、`DIVIDER` 现算与 `INFERNO` 的 Burn 升级。
+- 一处表达差别（已记在 §2.42）：源码先把新建 Burn 升级再入堆，这里「入堆后立刻升级」——牌堆内容等价，
+  差别只在「生成牌」钩子在升级前被派发。
+- **未验证**：没有在游戏内打过「六角幽魂」遭遇，六档查表、`DIVIDER` 的平均生命口径、Burn 升级三条都
+  **未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕首领时间吞噬者（`TimeEater`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

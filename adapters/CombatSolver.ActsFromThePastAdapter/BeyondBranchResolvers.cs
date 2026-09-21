@@ -56,6 +56,7 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Lagavulin", "MAIN_BRANCH", Lagavulin);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("WrithingMass", "MOVE_BRANCH", WrithingMass);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("TimeEater", "MOVE_BRANCH", TimeEater);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Hexaghost", "MOVE_BRANCH", Hexaghost);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -63,7 +64,7 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater"];
+         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -664,6 +665,36 @@ internal static class BeyondBranchResolvers
         if (!LastMove(log, "HEAD_SLAM"))
             return "HEAD_SLAM";
         return rng.NextFloat(1f) < 0.66f ? "REVERBERATE" : "RIPPLE";
+    }
+
+    /// <summary>
+    /// Hexaghost.SelectNextMove：**一次 RNG 都不抽**——按 <c>_orbActiveCount</c> 直接查表
+    /// （0 SEAR／1 TACKLE／2 SEAR／3 INFLAME／4 TACKLE／5 SEAR／6 INFERNO／其它 SEAR）。
+    /// </summary>
+    /// <remarks>只读模拟状态里的那个计数，不写任何东西，**已声明为纯读取**。</remarks>
+    private static string Hexaghost(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = log;
+        _ = rng;
+        _ = simulator;
+        return combat.GetMonsterInt(monster.Creature, "_orbActiveCount") switch
+        {
+            0 => "SEAR",
+            1 => "TACKLE",
+            2 => "SEAR",
+            3 => "INFLAME",
+            4 => "TACKLE",
+            5 => "SEAR",
+            6 => "INFERNO",
+            _ => "SEAR",
+        };
     }
 
     /// <summary>
