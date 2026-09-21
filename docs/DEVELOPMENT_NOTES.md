@@ -23,6 +23,13 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第三幕多努（`Donu`）（2026-09-21）
+
+- 第三幕再补一只（与 Deca 同场，Deca 的 `PlatedArmorPower` 三钩下一批做）：`Donu` 的行动在
+  `CIRCLE_OF_PROTECTION`／`BEAM` 之间固定交替，没有分支，所以只需要一条行动效果——
+  「给每个存活队友（含自己）挂 `CircleStrengthAmount`（自检钉死 3）点力量」；`BEAM` 是常量构造的两段攻击，
+  开场的 `Artifact` 与只被外观读写的 `_isAttacking` 都不需要适配代码。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.27。
 ## 未发布：第三幕自爆虫（`Exploder`）（2026-09-21）
 
 - 第三幕再补一只：`Exploder`。分支 `MOVE_BRANCH` **一次 RNG 都不抽**——回合计数 +1，没到

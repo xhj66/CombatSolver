@@ -1,5 +1,17 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕多努（`Donu`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`RequireConst("Donu","CircleStrengthAmount",3)` 与
+  `DonuCircleOfProtection`（遍历 `combat.GetTeammatesOf`、按模拟状态判存活、
+  `combat.Apply<StrengthPower>(teammate, 3, owner)`）以及 `"Donu"` 进自检类型表都在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 74,240 B；核心本轮未改）。
+- 逐行对照：`Donu` 的行动在 `CIRCLE_OF_PROTECTION` 与 `BEAM` 之间固定交替（**没有分支**，因此不需要
+  分支解析器与纯读取声明）；`BEAM` 是 `MultiAttackIntent(BeamDamage, 2)`（已在常量表）；
+  开场 `Artifact` 与 `_isAttacking`（只被外观读写）都不需要适配代码。
+- **未验证**：没有在游戏内打过「多努」遭遇，力量的施加范围与数值都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：本体新增「BeforeSideTurnStart」第三方 Power 登记（2026-09-21）
 
 - 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；已部署产物反编译核对：

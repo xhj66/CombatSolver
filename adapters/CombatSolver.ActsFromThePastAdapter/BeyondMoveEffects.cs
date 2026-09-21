@@ -30,7 +30,11 @@ internal static class BeyondMoveEffects
         "GiantHead",
         "Reptomancer",
         "Exploder",
+        "Donu",
     ];
+
+    /// <summary>Donu 的「保护之环」给每个存活队友的力量（AFTP <c>CircleStrengthAmount</c>）。</summary>
+    private static int _donuCircleStrengthAmount;
 
     /// <summary>Exploder 自爆前的回合数（AFTP <c>ExplosiveCountdown</c>）；分支解析器也用它。</summary>
     internal static int ExploderCountdown = 3;
@@ -68,6 +72,7 @@ internal static class BeyondMoveEffects
         _giantHeadGlareDuration = AfpReflection.RequireConst("GiantHead", "GlareDuration", 1);
         _snakeDaggerType = AfpReflection.RequireType("ActsFromThePast.SnakeDagger");
         ExploderCountdown = AfpReflection.RequireConst("Exploder", "ExplosiveCountdown", 3);
+        _donuCircleStrengthAmount = AfpReflection.RequireConst("Donu", "CircleStrengthAmount", 3);
     }
 
     public static void RegisterAll()
@@ -146,6 +151,37 @@ internal static class BeyondMoveEffects
         // 按意图结算，这里只补源码最后那句 CreatureCmd.Kill(自己, false)。
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Exploder", "EXPLODE", ExploderExplode);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("Exploder", "EXPLODE");
+
+        // --- 多努（Donu，与 Deca 同场） ---
+        // 初始行动是 CIRCLE_OF_PROTECTION、之后与 BEAM 交替（没有分支）；开场的 Artifact 发生在
+        // AfterAddedToRoom（已在根里）。要补的只有「保护之环」那一下给全体存活队友的力量。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "Donu",
+            "CIRCLE_OF_PROTECTION",
+            DonuCircleOfProtection);
+    }
+
+    /// <summary>
+    /// Donu.CircleOfProtection：给每个存活队友（含自己）挂 <c>CircleStrengthAmount</c> 点力量；
+    /// <c>Beam</c> 的两段攻击由通用攻击循环按意图结算，没有非攻击部分。
+    /// </summary>
+    private static bool DonuCircleOfProtection(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (simulator.State.GetCreature(teammate).IsAlive)
+                combat.Apply<StrengthPower>(teammate, _donuCircleStrengthAmount, move.Owner);
+        }
+        return true;
     }
 
     /// <summary>
