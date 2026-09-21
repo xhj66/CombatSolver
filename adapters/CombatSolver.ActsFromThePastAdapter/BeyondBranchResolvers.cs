@@ -46,13 +46,17 @@ internal static class BeyondBranchResolvers
             "MOVE_BRANCH",
             ShelledParasite);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Collector", "MOVE_BRANCH", Collector);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "GremlinLeader",
+            "MOVE_BRANCH",
+            GremlinLeader);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
-         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector"];
+         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -67,6 +71,7 @@ internal static class BeyondBranchResolvers
         ("Reptomancer", "MOVE_BRANCH"),
         ("SnakePlant", "MOVE_BRANCH"),
         ("ShelledParasite", "MOVE_BRANCH"),
+        ("GremlinLeader", "MOVE_BRANCH"),
     ];
 
     /// <summary>
@@ -315,6 +320,68 @@ internal static class BeyondBranchResolvers
                 torchSlots++;
         }
         return alive < torchSlots;
+    }
+
+    /// <summary>
+    /// GremlinLeader.SelectNextMove：`num` ＝存活小鬼数，`num2` ＝**先抽**的 <c>NextInt(100)</c>；
+    /// `num == 0` 时 `num2 &lt; 75` ⇒ RALLY（上一步是 RALLY 就 STAB）、否则 STAB（上一步是 STAB 就 RALLY）；
+    /// `num &lt; 2` 时 `num2 &lt; 50` ⇒ RALLY（上一步是 RALLY 就走 <see cref="GremlinLeaderUpper"/>）、
+    /// 否则直接走 <see cref="GremlinLeaderUpper"/>；其余 `num2 &lt; 66` ⇒ ENCOURAGE（上一步是 ENCOURAGE 就
+    /// STAB）、否则 STAB（上一步是 STAB 就 ENCOURAGE）。
+    /// </summary>
+    /// <remarks>
+    /// 那只 <c>num2</c> 在三条大分支之前就抽掉了，短路只影响后面是否再抽；只读 rng、行动历史与模拟状态里
+    /// 的存活小鬼数，不写状态，**已声明为纯读取**。
+    /// </remarks>
+    private static string GremlinLeader(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        int alive = 0;
+        foreach (Creature teammate in combat.GetTeammatesOf(monster.Creature))
+        {
+            if (teammate != monster.Creature && simulator.State.GetCreature(teammate).IsAlive)
+                alive++;
+        }
+        int num = rng.NextInt(100);
+        if (alive == 0)
+        {
+            if (num < 75)
+                return LastMove(log, "RALLY") ? "STAB" : "RALLY";
+            return LastMove(log, "STAB") ? "RALLY" : "STAB";
+        }
+        if (alive < 2)
+        {
+            if (num < 50 && !LastMove(log, "RALLY"))
+                return "RALLY";
+            return GremlinLeaderUpper(log, rng);
+        }
+        if (num < 66)
+            return LastMove(log, "ENCOURAGE") ? "STAB" : "ENCOURAGE";
+        return LastMove(log, "STAB") ? "ENCOURAGE" : "STAB";
+    }
+
+    /// <summary>
+    /// GremlinLeader.SelectFromUpperRange：再抽一次 <c>NextInt(100)</c>；`&lt; 60` ⇒ ENCOURAGE（上一步是它
+    /// 就 STAB）；否则上一步不是 STAB 就 STAB，只有上一步**是** STAB 时才再抽 <c>NextInt(80)</c>：
+    /// `&lt; 50` ⇒ RALLY（上一步是 RALLY 就 ENCOURAGE）、否则 ENCOURAGE（上一步是 ENCOURAGE 就 STAB）。
+    /// </summary>
+    private static string GremlinLeaderUpper(IReadOnlyList<string> log, Rng rng)
+    {
+        int num = rng.NextInt(100);
+        if (num < 60)
+            return LastMove(log, "ENCOURAGE") ? "STAB" : "ENCOURAGE";
+        if (!LastMove(log, "STAB"))
+            return "STAB";
+        int num2 = rng.NextInt(80);
+        if (num2 < 50)
+            return LastMove(log, "RALLY") ? "ENCOURAGE" : "RALLY";
+        return LastMove(log, "ENCOURAGE") ? "STAB" : "ENCOURAGE";
     }
 
     /// <summary>

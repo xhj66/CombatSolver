@@ -42,10 +42,19 @@ internal static class BeyondMoveEffects
         "BronzeOrb",
         "ShelledParasite",
         "Collector",
+        "GremlinLeader",
     ];
 
-    /// <summary>AFTP 的火炬头类型（收集者召唤用）。</summary>
+    /// <summary>AFTP 的火炬头类型（收集者召唤用）与五只小鬼类型（首领召唤用）。</summary>
     private static Type _torchHeadType = null!;
+    private static Type _gremlinMadType = null!;
+    private static Type _gremlinSneakyType = null!;
+    private static Type _gremlinFatType = null!;
+    private static Type _gremlinShieldType = null!;
+    private static Type _gremlinWizardType = null!;
+
+    /// <summary>首领那条私有 RNG 流抽过几次（照 §2.12 的纪律写进自建标量，进指纹但不进状态名单）。</summary>
+    internal const string GremlinLeaderRngDrawsMember = "adapter_gremlin_leader_rng_draws";
 
     /// <summary>甲壳寄生虫 FELL 给的破甲层数（AFTP <c>FellFrailAmount</c>）。</summary>
     private static int _shelledParasiteFellFrail;
@@ -139,6 +148,12 @@ internal static class BeyondMoveEffects
         _bronzeOrbType = AfpReflection.RequireType("ActsFromThePast.BronzeOrb");
         _shelledParasiteFellFrail = AfpReflection.RequireConst("ShelledParasite", "FellFrailAmount", 2);
         _torchHeadType = AfpReflection.RequireType("ActsFromThePast.TorchHead");
+        _gremlinMadType = AfpReflection.RequireType("ActsFromThePast.GremlinMad");
+        _gremlinSneakyType = AfpReflection.RequireType("ActsFromThePast.GremlinSneaky");
+        _gremlinFatType = AfpReflection.RequireType("ActsFromThePast.GremlinFat");
+        _gremlinShieldType = AfpReflection.RequireType("ActsFromThePast.GremlinShield");
+        _gremlinWizardType = AfpReflection.RequireType("ActsFromThePast.GremlinWizard");
+        MonsterRngSupport.VerifyShape();
     }
 
     public static void RegisterAll()
@@ -327,6 +342,128 @@ internal static class BeyondMoveEffects
         // BeforeDeath：震屏 + 杀掉存活火炬头。后半是**原版规则**（主敌死亡时杀掉存活的 secondary 队友，
         // 火炬头都带 MinionPower，核心已镜像）⇒ 登记为忽略。
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Collector"));
+
+        // --- 小鬼首领（GremlinLeader） ---
+        // 开场给队友挂 MinionPower 在 AfterAddedToRoom（已在根里）；ENCOURAGE 的两个数值是 A9 运行期属性。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("GremlinLeader", "StrengthAmount", "BlockAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("GremlinLeader", "RALLY", GremlinLeaderRally);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("GremlinLeader", "ENCOURAGE", GremlinLeaderEncourage);
+        // BeforeDeath：先把存活小鬼的 MinionPower 摘掉（源码如此），再让它们**逃跑**——小鬼的
+        // AfterAddedToRoom 订阅的是首领的 Died C# 事件，而模拟器不触发 C# 事件，所以这条语义由首领侧
+        // 一次做完（逃跑＋摘 MinionPower）。摘掉 MinionPower 同时避免了「主敌死亡杀掉存活 secondary 队友」
+        // 那条原版规则误杀它们——这正是源码的顺序。
+        BeforeDeathMirrors.Register(
+            AfpReflection.RequireType("ActsFromThePast.GremlinLeader"),
+            GremlinLeaderBeforeDeath);
+    }
+
+    /// <summary>
+    /// GremlinLeader.Rally：最多两次，每次取布点表里**最后一个**既不是 `leader` 又没被存活队友占用的槽位，
+    /// 用它自己那条私有 RNG 抽 <c>NextInt(8)</c> 决定召唤哪只小鬼（0-1 疯／2-3 潜／4-5 肥／6 盾／7 巫），
+    /// 每只挂 `MinionPower`（由 `minion: true` 做掉）。抽到哪一只、抽了几次都照抄源码。
+    /// </summary>
+    private static bool GremlinLeaderRally(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        HashSet<string> occupied = [];
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (simulator.State.GetCreature(teammate).IsAlive && teammate.SlotName is { } occupiedSlot)
+                occupied.Add(occupiedSlot);
+        }
+        MonsterRngPredictionState rng = MonsterRngSupport.State(
+            simulator,
+            move.Owner.Monster ?? throw new PredictionUnsupportedException("小鬼首领缺少怪物模型。"));
+        for (int index = 0; index < 2; index++)
+        {
+            string? emptySlot = null;
+            foreach (string slot in combat.EncounterSlots)
+            {
+                if (!string.Equals(slot, "leader", StringComparison.Ordinal) && !occupied.Contains(slot))
+                    emptySlot = slot;
+            }
+            if (emptySlot is null)
+                break;
+            int roll = rng.NextInt(0, 8);
+            Type childType = roll switch
+            {
+                0 or 1 => _gremlinMadType,
+                2 or 3 => _gremlinSneakyType,
+                4 or 5 => _gremlinFatType,
+                6 => _gremlinShieldType,
+                _ => _gremlinWizardType,
+            };
+            MonsterSpawnSupport.SpawnByType(
+                simulator,
+                combat,
+                move.Owner,
+                childType,
+                emptySlot,
+                maxHpOverride: null,
+                minion: true);
+            occupied.Add(emptySlot);
+        }
+        combat.SetMonsterInt(move.Owner, GremlinLeaderRngDrawsMember, rng.Draws);
+        return true;
+    }
+
+    /// <summary>
+    /// GremlinLeader.Encourage：先给自己 <c>StrengthAmount</c> 点力量，再给每个**存活的其他**队友
+    /// <c>StrengthAmount</c> 点力量与 <c>BlockAmount</c> 点格挡（<c>Move</c>）。
+    /// </summary>
+    private static bool GremlinLeaderEncourage(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        int strength = combat.GetMonsterStaticInt(move.Owner, "StrengthAmount");
+        int block = combat.GetMonsterStaticInt(move.Owner, "BlockAmount");
+        combat.Apply<StrengthPower>(move.Owner, strength, move.Owner);
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (teammate == move.Owner || !simulator.State.GetCreature(teammate).IsAlive)
+                continue;
+            combat.Apply<StrengthPower>(teammate, strength, move.Owner);
+            simulator.GainBlock(teammate, block, ValueProp.Move);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 小鬼首领的 <c>BeforeDeath</c>：摘掉存活小鬼的 <c>MinionPower</c>，再让它们逃跑
+    /// （源码那条是各小鬼订阅首领 <c>Died</c> 事件后 <c>CreatureCmd.Escape</c>；模拟器不触发 C# 事件，
+    /// 因此在这里一次做完，语义等价）。
+    /// </summary>
+    private static void GremlinLeaderBeforeDeath(AbstractModel model, BeforeDeathMirrorContext context)
+    {
+        MonsterModel leader = (MonsterModel)model;
+        if (!ReferenceEquals(context.Creature, leader.Creature))
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+        {
+            throw new PredictionUnsupportedException("小鬼首领的死亡处理缺少可写的预测状态。");
+        }
+        foreach (Creature teammate in combat.GetTeammatesOf(leader.Creature))
+        {
+            if (teammate == leader.Creature || !context.State.GetCreature(teammate).IsAlive)
+                continue;
+            combat.SetAmount<MinionPower>(teammate, 0);
+            combat.CreatureEscaped(teammate);
+        }
     }
 
     /// <summary>

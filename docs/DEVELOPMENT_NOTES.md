@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第二幕小鬼首领（`GremlinLeader`）（2026-09-21）
+
+- 分支三档（存活小鬼 0／1／更多）与 `SelectFromUpperRange` 里「只有上一步是 STAB 时才再抽 `NextInt(80)`」
+  的短路逐条照抄，并声明为纯读取；`RALLY` 用这只怪**自己的私有 RNG**（`MonsterRngSupport.State` ＋
+  `NextInt(0, 8)`）决定召唤五种小鬼里的哪一只，槽位取布点表里**最后一个**「非 leader 且未被占用」的，
+  抽数写进自建标量 `adapter_gremlin_leader_rng_draws` 进指纹。
+- 「随从随首领死亡逃跑」这条通用语义打通了：源码是各小鬼 `AfterAddedToRoom` 订阅首领 `Died` C# 事件后
+  `CreatureCmd.Escape`，模拟器不触发 C# 事件，所以改由首领侧 `BeforeDeath` 一次做完——先摘掉存活小鬼的
+  `MinionPower`（源码顺序，同时避免原版「主敌死亡杀掉存活 secondary 队友」规则误杀它们），再
+  `combat.CreatureEscaped`（与第一幕 Looter 逃跑同一入口）。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.35。
 ## 未发布：第二幕收集者（`Collector`）（2026-09-21）
 
 - 第二幕再补一只：`Collector`。分支有三处关键短路——`_initialSpawn` 未清就直接 SPAWN、回合数 ≥ 3 且

@@ -1,5 +1,21 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕小鬼首领（`GremlinLeader`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondBranchResolvers.GremlinLeader` ＋ `GremlinLeaderUpper`（含
+  「只有上一步是 STAB 时才再抽 `NextInt(80)`」的短路）与纯读取声明、两个行动效果
+  （`RALLY` 用 `MonsterRngSupport.State` ＋ `NextInt(0, 8)`、按布点表**最后一个**空槽召唤五种小鬼之一并写
+  `adapter_gremlin_leader_rng_draws`；`ENCOURAGE` 给自己与存活其他队友力量／格挡）、
+  `GremlinLeaderBeforeDeath`（摘存活小鬼的 `MinionPower` ＋ `CreatureEscaped`）、
+  `RequireType` 五只小鬼与火炬头、两个静态数值成员全部在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 92,160 B；核心本轮未改）。
+- 关键语义：小鬼的「随首领死亡逃跑」在源码里是各小鬼订阅首领 `Died` C# 事件后 `CreatureCmd.Escape`；
+  模拟器不触发 C# 事件，所以由首领侧 `BeforeDeath` 一次做完（并先摘掉 `MinionPower`，正是源码顺序——
+  这一步同时避免「主敌死亡杀掉存活 secondary 队友」的原版规则误杀它们）。
+- **未验证**：没有在游戏内打过「小鬼帮」遭遇，分支三档短路、RALLY 的私有 RNG 抽数与槽位选择、
+  逃跑后的阵容与胜负判定都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第二幕收集者（`Collector`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

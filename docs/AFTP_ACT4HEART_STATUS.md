@@ -891,6 +891,22 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 `BUFF`／`MEGA_DEBUFF` 的数值都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.35 第二幕：小鬼首领（`GremlinLeader`）与「随从随首领死亡逃跑」
+
+| 部位 | 源码（`ActsFromThePast.GremlinLeader`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 给队友挂 `MinionPower` | 不需要代码（已在根里） |
+| `MOVE_BRANCH` | **先抽**`NextInt(100)`；`num = 存活小鬼数`；`0` 只时 `< 75` ⇒ RALLY（上一步 RALLY 就 STAB）否则 STAB（上一步 STAB 就 RALLY）；`< 2` 只时 `< 50` 且上一步不是 RALLY ⇒ RALLY，否则走 `SelectFromUpperRange`；其余 `< 66` ⇒ ENCOURAGE（上一步 ENCOURAGE 就 STAB）否则 STAB（上一步 STAB 就 ENCOURAGE） | `BeyondBranchResolvers.GremlinLeader` ＋ `GremlinLeaderUpper`（`SelectFromUpperRange` 里那条**只有上一步是 STAB 时才再抽 `NextInt(80)`** 的短路逐条照抄）；只读 rng／历史／模拟状态 → **已声明为纯读取** |
+| `RALLY` | 最多两次：每次取布点表里**最后一个**既不是 `leader` 又没被存活队友占用的槽位，用**自己那条私有 RNG** 抽 `NextInt(8)` 决定召唤哪只小鬼（0-1 疯／2-3 潜／4-5 肥／6 盾／7 巫），每只挂 `MinionPower` | `GremlinLeaderRally`：`MonsterRngSupport.State` ＋ `NextInt(0, 8)`（等价 `NextInt(8)`），五次抽数与槽位顺序照抄；抽数写进自建标量 `adapter_gremlin_leader_rng_draws`（不进状态名单，但进指纹） |
+| `ENCOURAGE` | 自己 `StrengthAmount` 力量；每个**存活的其他**队友 `StrengthAmount` 力量 ＋ `BlockAmount` 格挡（`Move`） | `GremlinLeaderEncourage`；两个数值走静态数值成员 |
+| `STAB` | `MultiAttackIntent(6, 3)` | 已在常量表 |
+| `BeforeDeath` | 摘掉存活小鬼的 `MinionPower`（正是这一步让「主敌死亡杀掉存活 secondary 队友」那条原版规则不再误杀它们） | `GremlinLeaderBeforeDeath`：摘 `MinionPower`（`SetAmount<MinionPower>(…, 0)`）**然后让它们逃跑** |
+| 小鬼的逃跑 | 每只小鬼的 `AfterAddedToRoom` 订阅首领的 `Died` C# 事件（`GremlinLeaderHelper.SubscribeToLeaderDeath`），事件里 `CreatureCmd.Escape` 并把它从 `EscapedCreatures` 里移除 | 模拟器不触发 C# 事件，所以这条语义由**首领侧一次做完**：`combat.CreatureEscaped(teammate)`（与第一幕 Looter／强盗逃跑同一入口）。这也是 `GremlinLeader` 唯一需要新写语义的地方 |
+
+**未验证**：没有在游戏内打过「小鬼帮」遭遇，分支三档短路、RALLY 的私有 RNG 抽数与槽位选择、
+逃跑后阵容与胜负判定都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1225,7 +1241,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 一 | `Lagavulin` | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
 | 二 | ~~`BronzeOrb`~~（已适配 §2.32） |
-| 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
+| 二 | ~~`GremlinLeader`~~（已适配 §2.35） | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
 | 二 | ~~`Collector`~~（已适配 §2.34） | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | ~~`ShelledParasite`~~（已适配 §2.33） | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
