@@ -12,6 +12,16 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第二、三幕的常量构造攻击登记（2026-09-21）
+
+- 范围扩到全部怪物后，把「伤害与段数都在意图构造时固定」的攻击行动一次性补齐到第二、三幕：
+  新增 `LaterActsStableAttacks`（65 条，覆盖第二幕 20 个、第三幕 17 个类型里的静态攻击），
+  与第一幕的 `ExordiumStableAttacks`（35 条）合计 100 条。刻意不登记的是 `Dynamic*AttackIntent`
+  （段数/伤害现算，如 `BookOfStabbing.STAB`、`Maw.NOMNOMNOM_MULTI`、`Transient.ATTACK`）与
+  `MultiAttackIntent(int, Func<int>)`（伤害恒定但**段数**现算，不在 `IsStableAttackShape` 覆盖范围内）
+  以及纯召唤/防御/治疗/死亡执行意图。第二、三幕 37 个类型短名与本体类型表的碰撞按 §2.4 同一办法核过，
+  无同名。覆盖与三类排除项见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.7。
+
 ## 未发布：私有 RNG 流镜像收口与小鬼盾兵（2026-09-21）
 
 - 求解器本体新增 `src/Prediction/MonsterRngSupport.cs`：`MonsterRngPredictionState`（怪物自己那条

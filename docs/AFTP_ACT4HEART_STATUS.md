@@ -226,8 +226,8 @@ public TVal? Get(TKey obj)
 `new MultiAttackIntent(<实例属性>, <整数字面量>)` 构造攻击意图。这两个构造函数把**构造实参**捕进闭包
 （`DamageCalc = () => damage`），值在 `GenerateMoveStateMachine` 里求值一次，此后不受任何分支状态影响；
 但 `DamageCalc.Target != null` 这条保守判据照样会把它们报成 `approximation=…:动态伤害`，
-把整场战斗的可信度压到「中等」。适配新增 `ExordiumStableAttacks`，按
-`ThirdPartyAdapterRegistry.RegisterStableAttack` 登记第一幕 **35 条** (怪物, 行动)。
+把整场战斗的可信度压到「中等」。适配新增 `ExordiumStableAttacks`（第一幕 **35 条**）与
+`LaterActsStableAttacks`（第二、三幕 **65 条**），合计 100 条 (怪物, 行动)。
 
 **刻意不登记的两条**（继续按动态记近似）：
 
@@ -245,6 +245,15 @@ public TVal? Get(TKey obj)
 （`ThirdPartyAdapterRegistry.IsStableAttackShape` → `src/Prediction/StableAttackShape.cs`）：
 形状对不上就不认这条声明，近似清单照旧记一条。判据、四种成立／不成立的情形与核对程序见
 [第三方适配手册](THIRD_PARTY_ADAPTERS.md) §2.13。
+
+**第二、三幕的同一批（`LaterActsStableAttacks`，65 条）**：范围扩到全部怪物之后一次补上，
+覆盖第二幕 20 个、第三幕 17 个类型里所有「伤害与段数都在意图构造时固定」的攻击行动。
+刻意**不登记**的是三类：段数或伤害现算的 `Dynamic*AttackIntent`（`BookOfStabbing.STAB`、
+`Maw.NOMNOMNOM_MULTI`、`Darkling.NIP`、`GiantHead.IT_IS_TIME`、`Transient.ATTACK`）、
+第二、三幕里那些只含 `SummonIntent`/`DefendIntent`/`HealIntent`/`DeathBlowIntent`/空意图表的行动，
+以及 `MultiAttackIntent(int, Func<int>)` 那条**伤害恒定但段数现算**的重载——后者不在
+`IsStableAttackShape` 的覆盖范围内（判据只管伤害），所以名单里第二个实参一律不是 lambda。
+类型短名的碰撞按 §2.4 的同一办法核过：37 个第二、三幕类型名在本体 `sts2.dll` 的类型表里都不存在。
 
 登记与分支建模**互不影响**：Guardian、Hexaghost 这类分支仍被拒的怪物，其静态攻击行动照样是静态的，
 多登记不会让求解器接受一条它本来会拒绝的路线；反过来，缺这条登记也不改变任何模拟数值，
