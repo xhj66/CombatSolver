@@ -2935,7 +2935,8 @@ internal sealed partial class SimulatedCombatState
         => GetAmount<AdaptablePower>(creature) <= 0
             && GetAmount<IllusionPower>(creature) <= 0
             && GetAmount<ReattachPower>(creature) <= 0
-            && GetAmount<SteamEruptionPower>(creature) <= 0;
+            && GetAmount<SteamEruptionPower>(creature) <= 0
+            && RegisteredRevivePower(creature) == null;
     bool ICombatPredictionCreatureSemantics.HasUnresolvedSpawningDeath()
     {
         // 死亡当时个体就被移出了 _enemies，但还留在 _knownEnemies 里，powers 也要到清扫末尾的

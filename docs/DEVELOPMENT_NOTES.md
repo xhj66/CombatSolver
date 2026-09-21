@@ -1,5 +1,19 @@
 # CombatSolver 开发笔记与未来构想
 
+## 未发布：第三幕黑暗精灵（`Darkling`）与本体新增「死亡后保留尸体并复活」入口（2026-09-21）
+
+- 新增登记入口 `ThirdPartyAdapterRegistry.RegisterRevivePower(Power 类型名, 死亡回合 Id, 复活回合 Id)`：
+  把核心为原版 `ReattachPower`（分裂蜈蚣）写死的四条链路对第三方开放——`ShouldRemoveAfterDeath`（保留尸体）、
+  `DeathPowerSupport.Trigger`（开始复活阶段并强制走死亡回合；全组都死则整组永久死亡）、
+  `ResolveReviveMove`（复活回合治疗 `Amount` 并回到正常回合）、`RevivingEnemyHp`（复活中的尸体按待复活
+  层数计入终局口径）；`ShouldOwnerDeathTriggerFatal` 对登记过的类型改由模拟状态回答，
+  `PredictionCoverage` 把它的 `AfterDeath` 风险记成已补偿（与原版同处理）。
+- `Darkling`：分支 `MOVE_BRANCH`（首回合掷一次 + 三档 + 档内补抽，含那个「强制点数」重载；它会写
+  `_firstMove`，所以不声明为纯读取）、`HARDEN`（12 格挡 + A9 力量）、`DEAD_MOVE`／`REATTACH_MOVE`
+  登记成空操作（真正语义在复活阶段）、`SlotIndex`／`HardenStrength` 静态成员与 `_firstMove` 状态成员。
+  NIP 的伤害是入场时抽好的整场常量，按动态伤害近似记（与 Louse 同型）。第三幕至此只剩 `AwakenedOne`。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.46，登记纪律见
+  [第三方 Mod 适配手册](THIRD_PARTY_ADAPTERS.md) §2.13。
 ## 0.43.2：逐瓶用药、生成牌与路线可靠性（2026-09-20）
 
 - 玩家可感知的变化见 [0.43.2 更新日志](releases/0.43.2-RELEASE_NOTES.md)。

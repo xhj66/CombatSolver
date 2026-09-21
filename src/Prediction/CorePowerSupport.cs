@@ -34,7 +34,7 @@ internal static class CorePowerSupport
         bool targetDeathTriggersFatal = target == null
             || combat.EffectivePowers()
                 .Where(power => power.Owner == target)
-                .All(power => power.ShouldOwnerDeathTriggerFatal());
+                .All(power => OwnerDeathTriggersFatal(simulator, combat, power));
         MonologuePower[] pendingMonologues = combat.CapturePendingMonologues(owner);
         CardOnPlaySupport.Apply(
             simulator,
@@ -413,6 +413,18 @@ internal static class CorePowerSupport
         simulator.SynchronizePowerAmountPredictionStates();
         return true;
     }
+
+    /// <summary>
+    /// 「这个 Power 的持有者死亡算不算真死」。第三方复活 Power（原版 <c>ReattachPower</c> 那一类）的
+    /// 重写读的是 <c>Owner.CombatState</c>，在预测里会读到实机值，所以这类类型改由模拟状态判。
+    /// </summary>
+    private static bool OwnerDeathTriggersFatal(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power)
+        => ThirdPartyAdapterRegistry.IsRevivePowerName(power.GetType().Name)
+            ? combat.AreAllRegisteredReviveSiblingsDead(simulator, power.Owner, power.GetType().Name)
+            : power.ShouldOwnerDeathTriggerFatal();
 
     private static bool WasFatalKill(
         bool targetDeathTriggersFatal,

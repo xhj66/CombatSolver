@@ -512,6 +512,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `BeforeSideTurnEndMirrors.RegisterVeryEarly(模型类型名, handler)` | 第三方模型重写的 `BeforeSideTurnEndVeryEarly`（回合末的**最早**阶段）。与 `RegisterEarly` 分成两个入口是有意的：阶段顺序本身是语义的一部分（往昔之章的睡眠 Power 必须在这之前把金属化摘掉，否则同一回合末会多给一次格挡） |
 | `RegisterStolenCardPower(Power 类型名, hasStolenCard)` | 第三方**偷牌** Power：终局的「未追回战利品」与「持有者死亡时核销」原先只认原版 `SwipePower`（偷牌）与 `ThieveryPower`／`HeistPower`（偷金币）。不登记的话，被偷的牌会一直算作丢失（界面与排序都会错）；`hasStolenCard(simulator, power)` 由登记方回答「这个实例现在扣着牌吗」 |
 | `RegisterCardAfflictionSource(Power 类型名, 病症 Type, 牌型?)` | 第三方 Power 的「在玩家身上时给某类牌挂**病症**、消失时摘掉、之后进入战斗的牌同样处理」，对应核心为原版 `TangledPower`／`HexPower`／`RingingPower` 写死的那套规范化。挂的层数固定 1（与源码的 `CardCmd.Afflict<T>(card, 1m)` 一致）；Power 自身的移除时机另在 `RegisterSideTurnEndPower` 一类的入口表达，见下 |
+| `RegisterRevivePower(Power 类型名, 死亡回合 Id, 复活回合 Id)` | 第三方 Power 的「死亡后**保留尸体**、稍后复活」（原版 `ReattachPower` 的对应物）：同侧队友里带同一个 Power 的个体构成一组，组里还有活人就保留尸体并强制走死亡回合，之后复活回合治疗 `Amount` 点并复活；全组都死才算真死。不登记的话「死了就直接判赢」或者「卡在死亡回合回不来」，见下 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
 #### 第三方分支状态的选择函数：默认**不在预测里调用**
@@ -723,6 +724,40 @@ ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("你的Power类型名", 你�
    自检里要确认这个病症类型确实存在于对方程序集，并且它确实是 `AfflictionModel`。
 
 **仍然是纯新增**：没有登记项的进程里，这段规范化与加这个入口之前逐字节一致（不分配、不做额外扫描）。
+
+#### 死亡后保留尸体并复活（`RegisterRevivePower`）
+
+原版 `ReattachPower`（分裂蜈蚣的「重新接上」）与它的同类做的是：持有者死掉时**不**被移出战斗，
+而是记成「复活中」，被强制去打一个什么都不做的死亡回合，再在下一个行动里治疗 `Amount` 点并回来；
+只有同一组全死了，这些尸体才算真死、战斗才可以结束。核心把这条语义按类型写死在四处：
+
+- `ICombatPredictionCreatureSemantics.ShouldRemoveAfterDeath`（保留尸体）；
+- `DeathPowerSupport.Trigger`（开始复活阶段 + 强制走死亡回合，全组都死则整组永久死亡）；
+- `SimulatedCombatState.ResolveReviveMove`（复活回合治疗 `Amount` 并回到正常回合）；
+- `RevivingEnemyHp`（复活中的尸体按待复活的 `Amount` 计入终局口径）。
+
+第三方类型落在写死的名单外，症状是**安静的错**：死了当场判赢，或者一直卡在死亡回合。登记只有一行：
+
+```csharp
+ThirdPartyAdapterRegistry.RegisterRevivePower("你的Power类型名", "DEAD_MOVE", "REATTACH_MOVE");
+```
+
+**契约（只登记与 `ReattachPower` 同形的 Power）。** 同侧队友里**带同一个 Power** 的个体构成一组
+（与源码按 Power 分组同口径）；组里还有活人时保留尸体并强制走「死亡回合」，之后「复活回合」若组里仍有
+活人就治疗 `Amount` 点并复活，否则保持死亡；组里最后一个也死时整组标成永久死亡。
+
+四条纪律：
+
+1. **逐行比过 `ReattachPower` 再登记。** 判据（组内其他人是否都死）、治疗的数值来源（`Amount`）、
+   两个行动 Id、以及「复活中不可被打」都要与源码一致；行动 Id 写错不会报错，只会在运行到那一刻时
+   明确失败（`ForceMonsterMove` 找不到那个行动）。
+2. **Power 自己必须 `ShouldPowerBeRemovedAfterOwnerDeath() => false`**，否则尸体会被清掉、永远回不来。
+3. **`ShouldAllowHitting` 的重写不用镜像**：核心按死亡阶段判「复活中不可被打」，不看那个重写。
+   `ShouldOwnerDeathTriggerFatal` 也不用镜像，但**必须**是「其他队友是否都死」这条判据——核心对
+   登记过的复活 Power 用模拟状态替你回答（源码那份实现读的是 `Owner.CombatState`，在预测里会读到实机值）。
+4. **`AfterDeath` 那条重写仍然会在派发时记一条 `MethodNotMirrored` 风险**（核心对第三方重写没有通用
+   `AfterDeath` 入口），但 `PredictionCoverage` 对登记过的复活 Power 把它记成**已补偿**——与原版
+   `ReattachPower` 完全同一处理，所以不会连带把「这一局算不算打赢」压掉。
 
 #### 回合开始的 `BeforeSideTurnStart`
 

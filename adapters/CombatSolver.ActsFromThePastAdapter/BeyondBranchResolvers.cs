@@ -61,6 +61,7 @@ internal static class BeyondBranchResolvers
             "Guardian",
             "OFFENSIVE_BRANCH",
             Guardian);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Darkling", "MOVE_BRANCH", Darkling);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -68,7 +69,7 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost", "Guardian"];
+         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost", "Guardian", "Darkling"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -700,6 +701,64 @@ internal static class BeyondBranchResolvers
             6 => "INFERNO",
             _ => "SEAR",
         };
+    }
+
+    /// <summary>
+    /// Darkling.SelectNextMove（分支 Id <c>MOVE_BRANCH</c>，而且是它的**初始状态**）：首回合先掷一次
+    /// <c>NextInt(100)</c>（&lt;50 硬化、否则啃咬）并把 <c>_firstMove</c> 置假；之后掷一次落三档，
+    /// 档内再加抽一次（&lt;40 档补 <c>NextInt(60)+40</c>、&gt;=70 档补 <c>NextInt(100)</c>）走
+    /// 那个「强制点数」的重载——两个重载都不再抽 RNG。
+    /// </summary>
+    /// <remarks>
+    /// 这条选择函数**会写** <c>_firstMove</c>，所以**不在**纯读取名单里：意图预览不碰它（宁可让这条分支
+    /// 显示「预览可能不完整」，也不能让预览去改实机的首回合标记）。`SlotIndex` 是遭遇布点时定下的，
+    /// 走静态数值成员读一次。
+    /// </remarks>
+    private static string Darkling(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = simulator;
+        Creature owner = monster.Creature;
+        if (combat.GetMonsterBool(owner, "_firstMove"))
+        {
+            combat.SetMonsterBool(owner, "_firstMove", false);
+            return rng.NextInt(100) < 50 ? "HARDEN" : "NIP";
+        }
+        return DarklingForcedRoll(owner, log, rng, combat, rng.NextInt(100));
+    }
+
+    /// <summary>
+    /// Darkling.SelectNextMove 的那个「强制点数」重载：本身不抽 RNG，只有落到需要重选的两档时
+    /// 才由**调用方**再抽一次（抽的顺序照源码：实参先求值再进递归）。
+    /// </summary>
+    private static string DarklingForcedRoll(
+        Creature owner,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        int forcedRoll)
+    {
+        if (forcedRoll < 40)
+        {
+            if (!LastMove(log, "CHOMP") && combat.GetMonsterStaticInt(owner, "SlotIndex") % 2 == 0)
+                return "CHOMP";
+            return DarklingForcedRoll(owner, log, rng, combat, rng.NextInt(60) + 40);
+        }
+        if (forcedRoll < 70)
+        {
+            if (!LastMove(log, "HARDEN"))
+                return "HARDEN";
+            return "NIP";
+        }
+        if (!LastTwoMoves(log, "NIP"))
+            return "NIP";
+        return DarklingForcedRoll(owner, log, rng, combat, rng.NextInt(100));
     }
 
     /// <summary>

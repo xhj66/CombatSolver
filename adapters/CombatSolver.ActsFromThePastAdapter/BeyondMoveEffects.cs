@@ -56,6 +56,7 @@ internal static class BeyondMoveEffects
         "TimeEater",
         "Hexaghost",
         "Guardian",
+        "Darkling",
     ];
 
     /// <summary>AFTP 自己的 <c>ModeShiftPower</c>（守护者的形态切换阈值）与 <c>SharpHidePower</c>（尖刺外壳）。</summary>
@@ -152,6 +153,12 @@ internal static class BeyondMoveEffects
     /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
     private static Type _constrictedPowerType = null!;
 
+    /// <summary>AFTP 自己的 <c>LifeLinkPower</c>（黑暗精灵的「命链」，原版 <c>ReattachPower</c> 的复制品）。</summary>
+    private static Type _lifeLinkType = null!;
+
+    /// <summary>Darkling 的 HARDEN 格挡（AFTP <c>HardenBlock</c>）。</summary>
+    private static int _darklingHardenBlock;
+
     /// <summary>GiantHead 每次 COUNT 递减后给 IT_IS_TIME 加的伤害（AFTP <c>IncrementDmg</c>）。</summary>
     private static int _giantHeadIncrementDmg;
 
@@ -246,6 +253,19 @@ internal static class BeyondMoveEffects
         _guardianThresholdIncrease = AfpReflection.RequireConst("Guardian", "DmgThresholdIncrease", 10);
         _guardianVentDebuff = AfpReflection.RequireConst("Guardian", "VentDebuffAmount", 2);
         _ = AfpReflection.RequireOverride("Guardian", "BeforeDeath", 1);
+        // 黑暗精灵（Darkling）：LifeLinkPower 是原版 ReattachPower 的逐行复制品（同一套 isReviving 内部数据、
+        // 同一个「队友里还有活人就保留尸体」判据），所以走本体的 RegisterRevivePower ── 五个钩子逐个核对，
+        // 行动 Id 就是状态机里写死的 DEAD_MOVE／REATTACH_MOVE。
+        _lifeLinkType = AfpReflection.RequireType("ActsFromThePast.LifeLinkPower");
+        _ = AfpReflection.RequireOverride("LifeLinkPower", "AfterDeath", 4);
+        _ = AfpReflection.RequireOverride("LifeLinkPower", "ShouldAllowHitting", 1);
+        _ = AfpReflection.RequireOverride("LifeLinkPower", "ShouldCreatureBeRemovedFromCombatAfterDeath", 1);
+        _ = AfpReflection.RequireOverride("LifeLinkPower", "ShouldPowerBeRemovedAfterOwnerDeath", 0);
+        _ = AfpReflection.RequireOverride("LifeLinkPower", "ShouldOwnerDeathTriggerFatal", 0);
+        // 活着的持有者身上其实没有可读的「复活中」标记需要镜像：核心用死亡阶段表达同一件事
+        //（ShouldRemoveAfterDeath／DeathPowerSupport／ResolveReviveMove），AfterDeath 那条重写
+        // 在 PredictionCoverage 里按「已登记复活 Power」记成已补偿。
+        _darklingHardenBlock = AfpReflection.RequireConst("Darkling", "HardenBlock", 12);
         AfpReflection.VerifyAscensionHelper();
     }
 
@@ -607,9 +627,69 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Guardian", "TWIN_SLAM", GuardianEndTwinSlam);
         // BeforeDeath：死亡时如果正好在一次攻击过程中，按尖刺外壳的层数给攻击者补一刀（Unpowered）。
         BeforeDeathMirrors.Register(AfpReflection.RequireType("ActsFromThePast.Guardian"), GuardianBeforeDeath);
+
+        // --- 黑暗精灵（Darkling，第三幕） ---
+        // 首回合标记（选择函数会写它，必须随分支 Fork 并进指纹）与遭遇布点上下来的序号（整场不变）。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Darkling", "_firstMove");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Darkling", "SlotIndex", "HardenStrength");
+        // HARDEN：自己 HardenBlock 格挡（Move），A9+ 再给自己 HardenStrength 点力量（0 层时不加）。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Darkling", "HARDEN", DarklingHarden);
+        // CHOMP（8/9 ×2）与 NIP 都是纯攻击：NIP 的伤害是入场时按 RunRng 抽好、存在私有字典里的，
+        // 意图自带的闭包会把它读出来冻结（与 LouseGreen／LouseRed 的 BITE 同型，见 §2.7）。
+        // DEAD_MOVE／REATTACH_MOVE 在源码里分别是「空行动」与「治疗」，治疗由本体的复活阶段结算；
+        // 这里登记成空操作，让意图侧认出这两个行动（与原版 Decimillipede 那两只的处理一致）。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Darkling", "DEAD_MOVE", DarklingNoMoveEffect);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Darkling", "REATTACH_MOVE", DarklingNoMoveEffect);
+        ThirdPartyAdapterRegistry.RegisterRevivePower("LifeLinkPower", "DEAD_MOVE", "REATTACH_MOVE");
     }
 
-    /// <summary>Guardian.CheckPendingModeShift：行动收尾时把「执行中攒下的」形态切换补上。</summary>
+    /// <summary>
+    /// Darkling 的 <c>DEAD_MOVE</c>／<c>REATTACH_MOVE</c>：源码里前者只播音效与动画、后者调
+    /// <c>LifeLinkPower.DoReattach()</c>（治疗 + 复活）——治疗的判据与数值都由本体的复活阶段负责
+    /// （见 <c>RegisterRevivePower</c>），所以这两个行动在这张表里是空操作，只用于让意图侧认出它们。
+    /// </summary>
+    private static bool DarklingNoMoveEffect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = combat;
+        _ = move;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        return true;
+    }
+
+    /// <summary>
+    /// Darkling.Harden：自己 <c>HardenBlock</c> 格挡（<c>Move</c>），<c>HardenStrength</c> 大于 0 时
+    /// 再给自己那么多力量（A9+ 2，否则 0——0 层时源码连意图里的 BuffIntent 都不加）。
+    /// </summary>
+    private static bool DarklingHarden(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.GainBlock(move.Owner, _darklingHardenBlock, ValueProp.Move);
+        int strength = combat.GetMonsterStaticInt(move.Owner, "HardenStrength");
+        if (strength > 0)
+            combat.Apply<StrengthPower>(move.Owner, strength, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// Guardian.CheckPendingModeShift：行动收尾时把「执行中攒下的」形态切换补上。
+    /// </summary>
     private static void GuardianCheckPendingModeShift(
         CombatPredictionSimulator simulator,
         SimulatedCombatState combat,

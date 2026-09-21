@@ -51,6 +51,10 @@ internal static partial class PredictionCoverage
             HexPower when method == "AfterDeath" => true,
             ShrinkPower when method == "AfterDeath" => true,
             DecimillipedeSegment when method == "AfterDeath" => true,
+            // 第三方「死亡后保留尸体并复活」的 Power（登记见 RegisterRevivePower）与原版 ReattachPower
+            // 走同一条处理：语义在死亡阶段入口实现，AfterDeath 这条重写因此算已补偿。
+            PowerModel power when method == "AfterDeath"
+                && ThirdPartyAdapterRegistry.IsRevivePowerName(power.GetType().Name) => true,
             ConcoctPower when method == "AfterDamageGiven" => true,
             CorrosiveWavePower when method == "AfterCardDrawn" => true,
             CardModel card when method == "OnPlay"

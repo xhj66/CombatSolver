@@ -1153,6 +1153,37 @@ TWIN_SLAM 三次形态往返）、尖刺外壳的两处伤害（出攻击牌与�
 （AFTP 程序集无法在无头测试进程里加载，这一条对全部 AFTP 批次同样适用）。
 ---
 
+### 2.46 第三幕：黑暗精灵（`Darkling`，三只一组）与本体新增「死亡后保留尸体并复活」入口
+
+这只怪的分支本身很小（首回合一次 `NextInt(100)`，之后三档 + 档内补抽），难点全在**死亡**上：
+三只黑暗精灵每只入场时挂 `MaxHp / 2` 层 AFTP 自己的 `LifeLinkPower`，任何一只死掉时只要**组里还有活人**
+就不被移出战斗，而是去打一个空的「死亡回合」（`DEAD_MOVE`），下一个回合 `REATTACH_MOVE` 治疗回来；
+只有三只全死才算真死。
+
+**关键事实：`LifeLinkPower` 是原版 `ReattachPower` 的逐行复制品**（同一个 `isReviving` 内部数据、
+同一个 `!AreAllOtherSegmentsDead() || !Owner.IsDead` 判据、同一组 `ShouldAllowHitting`／
+`ShouldCreatureBeRemovedFromCombatAfterDeath`／`ShouldPowerBeRemovedAfterOwnerDeath`／
+`ShouldOwnerDeathTriggerFatal` 重写，连 `DoReattach` 都一模一样）。所以本批不给它做一套新镜像，而是把
+本体那条**已经为分裂蜈蚣写好**的复活链路对第三方开放（新增 `RegisterRevivePower`，文档见
+[第三方适配手册](THIRD_PARTY_ADAPTERS.md) §2.13），AFTP 侧只登记一行
+`("LifeLinkPower", "DEAD_MOVE", "REATTACH_MOVE")`。
+
+| 位置 | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `MOVE_BRANCH`（**初始状态**） | `SelectNextMove`：首回合掷一次 `NextInt(100)`（&lt;50 HARDEN／否则 NIP）并把 `_firstMove` 置假；之后掷一次落三档：&lt;40 档「上一步不是 CHOMP 且 `SlotIndex` 为偶数」⇒ CHOMP，否则用 `NextInt(60)+40` 走强制点数重载；&lt;70 档「上一步不是 HARDEN」⇒ HARDEN，否则 NIP；否则「最近两次不都是 NIP」⇒ NIP，再用 `NextInt(100)` 走强制点数重载 | `BeyondBranchResolvers.Darkling`（两个重载都照抄，抽 RNG 的顺序与短路一致）。它**写** `_firstMove`，所以**不**声明为纯读取：预览宁可显示「这条分支没有预测实现」，也不能让预览去改实机的首回合标记 |
+| `HARDEN` | 自己 12 格挡（`Move`）；`HardenStrength > 0` 时再给自己那么多力量（A9+ 2，否则 0，0 时连 BuffIntent 都不加） | `DarklingHarden`（12 走 `RequireConst`，`HardenStrength` 走静态数值成员） |
+| `CHOMP` / `NIP` | 8/9 ×2；`DynamicSingleAttackIntent(() => GetNipDamage())` | 纯攻击。NIP 的伤害是入场时按 RunRng 抽好存在私有字典里的**整场常量**，意图闭包会把它读出来冻结（与 `LouseGreen`／`LouseRed` 的 BITE 同型，§2.7 已记这类「动态伤害」近似） |
+| `DEAD_MOVE` / `REATTACH_MOVE` | 空行动；`LifeLinkPower.DoReattach()`（治疗 + 复活） | 行动效果登记成空操作（与原版分裂蜈蚣那两只同一处理，只为让意图侧认出这两个行动）；治疗的判据与数值由本体的复活阶段负责 |
+| `LifeLinkPower.ShouldOwnerDeathTriggerFatal` | 「其他黑暗精灵是不是都死了」 | 核心对登记过的复活 Power **用模拟状态替你回答**（源码那份实现走 `Owner.CombatState`，预测里会读到实机值） |
+| `LifeLinkPower.AfterDeath` | 记 `isReviving`、`SetMoveImmediate(DeadState)`、不可交互 | 由 `DeathPowerSupport` 的复活分支表达；这条重写仍会记一条 `MethodNotMirrored` 风险，但 `PredictionCoverage` 对登记过的复活 Power 记成**已补偿**（与原版 `ReattachPower` 同一处理，§2.10 那条链不会再吞掉胜利） |
+| `ShouldFadeAfterDeath` / `ShouldDisappearFromDoom`（属性重写） | 尸体不淡出、被厄运杀死也不消失 | 求解器不读这两个属性（全库没有引用）：它们在模拟里的**效果**就是「尸体留在阵容里」，那一条由 `RegisterRevivePower` 的 `ShouldRemoveAfterDeath` 表达 |
+| `AfterAddedToRoom` | 抽 NIP 伤害 + 挂 `MaxHp/2` 层 `LifeLinkPower` | 发生在根捕获之前，已在根里（每只黑暗精灵是 `ToMutable()` 克隆、`SlotIndex` 由遭遇布点时写好） |
+
+**未验证**：没有在游戏内打过「黑暗精灵」遭遇，三只一组的复活（含「组里最后一个也死 ⇒ 整组永久死亡」）、
+死亡回合与复活回合各占一个回合、复活中不可被打、NIP 的冻结伤害、以及三档抽样都**未实机验证**；
+也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1398,9 +1429,9 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
 | 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24）、✔ Reptomancer（§2.25）、✔ Exploder（§2.26）、✔ Donu（§2.27）、✔ Deca（§2.28） |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
-| 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
+| 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | ✔ BronzeAutomaton（§2.32）、✔ Collector（§2.34）、✔ GremlinLeader（§2.35）、✔ Byrd（§2.36）；**复活同一个个体**是另一条路：✔ Darkling（§2.46，`RegisterRevivePower`） | AwakenedOne（REBIRTH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
-| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化） | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
+| 4 | 新 Power 镜像（第三幕居多） | ✔ SplitPower、✔ ModeShiftPower、✔ SharpHidePower、✔ AsleepLagavulinPower、✔ EntangledPower（§2.45，走病症规范化）、✔ LifeLinkPower（§2.46，走复活阶段；它与原版 `ReattachPower` 逐行同形，内部数据不需要镜像） | AngryPower✔、SporeCloudPower✔、PainfulStabsPower✔（**原版** Power，镜像早已在核心里，§2.17）、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
 | 5 | 强制改写当前行动 / 眩晕 | ✔ Guardian（`ForceMonsterMove`，§2.44）、✔ Lagavulin（`ForceStunnedMove`，§2.39） | ✔ ShelledParasite（§2.33） | AwakenedOne |
 | 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |
 | 7 | 病症／可打出性镜像 | ✔ SlaverRed（`EntangledPower` + `EntangledOriginal` 病症，§2.45：新增 `RegisterCardAfflictionSource`） | — | — |
@@ -1479,9 +1510,10 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 `TorchHead`（§2.18，零登记）；
 第三幕 `Repulsor`／`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、
 `SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）；
-其后 §2.27–§2.44 的批次见各自小节（`Donu`／`Deca`／`SnakePlant`／`BronzeAutomaton`／`BronzeOrb`／
+其后 §2.27–§2.46 的批次见各自小节（`Donu`／`Deca`／`SnakePlant`／`BronzeAutomaton`／`BronzeOrb`／
 `ShelledParasite`／`Collector`／`GremlinLeader`／`Byrd`／`Nemesis`／`Transient`／`Lagavulin`／`WrithingMass`／
-`TimeEater`／`Hexaghost`／`Guardian`／`SlaverRed`）。**第一幕 20 只至此全部完成**。
+`TimeEater`／`Hexaghost`／`Guardian`／`SlaverRed`／`Darkling`）。**第一幕 20 只全部完成；第三幕只剩
+`AwakenedOne`。**
 
 **未适配与确切缺口**（每条都已反编译核对过，动手时不需要重新侦察）：
 
@@ -1501,7 +1533,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 三 | ~~`Transient`~~（已适配 §2.38；§4.4 原先列的「缺按 Type 施加临时力量的入口」是**误判**——`ApplyTemporaryStrengthLoss(Type, …)` 早已存在） |
 | 三 | ~~`Nemesis`~~（已适配 §2.37） | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
 | 三 | ~~`WrithingMass`~~（已适配 §2.40；`MEGA_DEBUFF` 的牌组塞 Paraste 属跨战斗效果，未建模，见 §2.40） | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
-| 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |
+| 三 | ~~`Darkling`~~（已适配 §2.46） | 复活/重接：`LifeLinkPower` 是原版 `ReattachPower` 的逐行复制品，走本批新增的 `RegisterRevivePower("LifeLinkPower","DEAD_MOVE","REATTACH_MOVE")`（保留尸体 + 死亡回合 + 治疗复活 + 全组死才算真死）；`ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 两个属性重写求解器不读，效果由保留尸体那条表达；`AfterDeath` 风险记成已补偿 |
 | 三 | `AwakenedOne` | 两阶段 + 重生（`REBIRTH`）+ `ShouldDisappearFromDoom` + `BeforeDeath` |
 | 三 | ~~`TimeEater`~~（已适配 §2.41） | `TimeWarpPower`（回合计数、内部 DynamicVar + 卡牌计数）+ `HASTE` + `AfterAddedToRoom` |
 

@@ -65,6 +65,14 @@ internal static class DeathPowerSupport
             if (!ReferenceEquals(power.Owner, dead))
                 continue;
 
+            // 第三方「死亡后保留尸体、稍后复活」的 Power（原版 ReattachPower 那一类的对应物）：
+            // 与 BeginReattach 同形，但分组与行动 Id 来自登记项。
+            if (ThirdPartyAdapterRegistry.IsRevivePowerName(power.GetType().Name))
+            {
+                combat.BeginRegisteredRevive(simulator, dead, power);
+                continue;
+            }
+
             switch (power)
             {
                 case AdaptablePower:

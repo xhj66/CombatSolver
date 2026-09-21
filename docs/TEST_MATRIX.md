@@ -1,5 +1,27 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕黑暗精灵（`Darkling`）与本体新增「死亡后保留尸体并复活」入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  **无编译器警告**）；已部署产物反编译核对：核心里 `ThirdPartyAdapterRegistry.RevivePowerRegistration` /
+  `RegisterRevivePower` / `TryGetRevivePower` / `IsRevivePowerName`、`SimulatedCombatState` 的
+  `RegisteredRevivePower` / `BeginRegisteredRevive` / `AreAllRegisteredReviveSiblingsDead` /
+  `ResolveRegisteredReviveMove`（与 `ShouldRemoveAfterDeath`、`RevivingEnemyHp`、`ResolveReviveMove` 串起来）、
+  `DeathPowerSupport` 的复活分支、`CorePowerSupport` 与 `DoomKill` 里 `ShouldOwnerDeathTriggerFatal`
+  改由模拟状态回答、`PredictionCoverage` 把登记过的复活 Power 的 `AfterDeath` 记成已补偿；
+  适配里 `BeyondBranchResolvers.Darkling` + `DarklingForcedRoll`（两个重载、RNG 顺序照抄）、
+  `DarklingHarden` / `DarklingNoMoveEffect`、`_firstMove` 状态成员与 `SlotIndex`／`HardenStrength`
+  静态成员、`RequireConst("Darkling","HardenBlock",12)`、`LifeLinkPower` 五条 `RequireOverride`、
+  `RegisterRevivePower("LifeLinkPower","DEAD_MOVE","REATTACH_MOVE")` 全部在场；
+  部署产物与工作区构建哈希逐字节相同（核心 6,306,304 B、AFTP 118,272 B）。
+- 关键判断：`LifeLinkPower` 与原版 `ReattachPower` **逐行同形**（同一 `isReviving` 内部数据与四个
+  `Should*` 重写），所以不另做镜像，而是把核心既有的复活链路对第三方开放；`isReviving` 因此**不需要**
+  进 `PowerHiddenStateMirrors`（核心用死亡阶段表达同一件事）。`Darkling` 的分支会写 `_firstMove`，
+  故**不**声明为纯读取（预览不碰它）。`ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 是属性重写，
+  全库没有引用，其效果由「保留尸体」那条表达。
+- **未验证**：没有在游戏内打过「黑暗精灵」遭遇，三只一组的复活（含「组里最后一个也死 ⇒ 整组永久死亡」）、
+  死亡回合与复活回合各占一回合、复活中不可被打、NIP 冻结伤害、三档抽样都**未实机验证**；也没有差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第一幕最后一只强盗红（`SlaverRed`）与本体新增「Power 驱动的卡牌病症」入口（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

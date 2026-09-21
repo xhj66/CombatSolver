@@ -334,6 +334,58 @@ internal static class ThirdPartyAdapterRegistry
         => StolenCardPowerTable.TryGetValue(powerTypeName, out handler!);
 
     /// <summary>
+    /// 一条「第三方复活 Power」的登记项：持有者死亡时保留尸体、进入复活阶段，
+    /// <paramref name="DeadMoveId"/> 那一回合什么都不做，之后 <paramref name="ReviveMoveId"/> 治疗
+    /// <c>power.Amount</c> 点并复活。
+    /// </summary>
+    public readonly record struct RevivePowerRegistration(
+        string PowerTypeName,
+        string DeadMoveId,
+        string ReviveMoveId);
+
+    private static readonly Dictionary<string, RevivePowerRegistration> RevivePowerTable = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// 登记第三方 Power 的「死亡后保留尸体、稍后复活」语义（原版 <c>ReattachPower</c> 的第三方对应物）。
+    /// </summary>
+    /// <remarks>
+    /// 原版这条语义在核心里按类型写死在四处：<c>ICombatPredictionCreatureSemantics.ShouldRemoveAfterDeath</c>
+    /// （保留尸体）、<c>DeathPowerSupport.Trigger</c>（开始复活阶段 + 强制走「死亡回合」）、
+    /// <c>SimulatedCombatState.ResolveReviveMove</c>（复活回合治疗并回到正常回合）、
+    /// <c>RevivingEnemyHp</c>（复活中的尸体按待复活生命计入终局口径）。第三方类型落在写死的名单外，
+    /// 结果是**死了就直接判赢**、或者**卡在死亡回合永远不回来**——数值不报错，但整场结论是错的。
+    ///
+    /// <para>
+    /// 契约（只登记逐行核对过与 <c>ReattachPower</c> 同形的 Power）：**同侧队友里带同一个 Power 的个体**构成
+    /// 一组；组里还有别人活着时，死者保留尸体并强制走 <paramref name="DeadMoveId"/>；之后
+    /// <paramref name="ReviveMoveId"/> 那一回合若组里仍有活人，就治疗 <c>Amount</c> 点并复活，
+    /// 否则保持死亡。组里最后一个也死了时，全组标记为永久死亡（战斗可以结束）。
+    /// </para>
+    ///
+    /// <para>
+    /// 登记方要自己核对：Power 的 <c>ShouldPowerBeRemovedAfterOwnerDeath()</c> 必须返回 <c>false</c>
+    /// （否则尸体上的复活 Power 会被清掉），<c>ShouldAllowHitting</c> 的重写语义要与「复活中不可被打」
+    /// 一致（核心按死亡阶段判，不看那个重写），以及死亡回合／复活回合的行动 Id 与源码一致。
+    /// </para>
+    /// </remarks>
+    public static void RegisterRevivePower(string powerTypeName, string deadMoveId, string reviveMoveId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(powerTypeName);
+        ArgumentException.ThrowIfNullOrEmpty(deadMoveId);
+        ArgumentException.ThrowIfNullOrEmpty(reviveMoveId);
+        if (RevivePowerTable.ContainsKey(powerTypeName))
+            throw new InvalidOperationException($"{powerTypeName} 已经登记过复活语义了。");
+        RevivePowerTable.Add(powerTypeName, new RevivePowerRegistration(powerTypeName, deadMoveId, reviveMoveId));
+    }
+
+    public static bool TryGetRevivePower(string powerTypeName, out RevivePowerRegistration registration)
+        => RevivePowerTable.TryGetValue(powerTypeName, out registration);
+
+    /// <summary>这个 Power 类型名是否登记过「死亡后保留尸体并复活」。</summary>
+    public static bool IsRevivePowerName(string powerTypeName)
+        => RevivePowerTable.ContainsKey(powerTypeName);
+
+    /// <summary>
     /// 登记第三方**非 Power 模型**（怪物这类）的常规（非 Late）<c>AfterSideTurnEnd</c>：敌人回合末按类型名派发。
     /// </summary>
     /// <remarks>
