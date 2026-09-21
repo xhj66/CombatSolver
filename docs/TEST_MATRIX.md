@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕瞬逝者（`Transient`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`RegisterMonsterAttackValues("Transient","ATTACK", …)`、
+  行动效果 `TransientAttackEffect`（`_count++`）、`RegisterMonsterStateMembers("Transient",{"_count"})`、
+  `RegisterStaticIntMembers("Transient",{"StartingDeathDmg"})`、
+  `RequireConst("Transient","IncrementDmg",10)`、
+  `BeforeSideTurnEndMirrors.RegisterEarly(_fadingPowerType, …)`（最后一层 `simulator.Kill(owner)`）、
+  `ShiftingPowerDamageReceived`（`ApplyTemporaryStrengthLoss(_shiftingStrengthDownType, owner,
+  TotalDamage, owner, null)`）、两条 `RequireOverride`（3／6 参）与三个 `RequireType` 全部在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 97,280 B；核心本轮未改）。
+- **§4.4 的更正**：那儿把「按 `Type` 施加第三方 `TemporaryStrengthPower` 子类」列为缺能力，但核心里早已有
+  `SimulatedCombatState.ApplyTemporaryStrengthLoss(Type, …)`（与 `ApplyPower(Type, …)` 同一套编译泛型委托
+  写法），所以本批**没有改动本体**；缺口表已同步更正。
+- **未验证**：没有在游戏内打过「瞬逝者」遭遇，伤害递增曲线、Fading 的最后一击、挨打叠的负力量与回合末
+  恢复都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕复仇女神（`Nemesis`）与本体「非 Power 模型回合末」入口（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

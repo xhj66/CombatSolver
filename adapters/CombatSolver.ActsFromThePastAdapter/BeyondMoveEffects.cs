@@ -45,7 +45,16 @@ internal static class BeyondMoveEffects
         "GremlinLeader",
         "Byrd",
         "Nemesis",
+        "Transient",
     ];
+
+    /// <summary>AFTP 的 <c>FadingPower</c>／<c>ShiftingPower</c>／<c>ShiftingStrengthDownPower</c>（第三幕瞬逝者）。</summary>
+    private static Type _fadingPowerType = null!;
+    private static Type _shiftingPowerType = null!;
+    private static Type _shiftingStrengthDownType = null!;
+
+    /// <summary>瞬逝者每回合给自己加的伤害（AFTP <c>IncrementDmg</c>）。</summary>
+    private static int _transientIncrementDamage;
 
     /// <summary>Nemesis 的 TRI_BURN 塞的 Burn 张数（AFTP <c>BurnAmount</c>）。</summary>
     private static int _nemesisBurnAmount;
@@ -171,6 +180,12 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("FlightPower", "AfterRemoved", 1);
         _byrdCawStrength = AfpReflection.RequireConst("Byrd", "CawStrength", 1);
         _nemesisBurnAmount = AfpReflection.RequireConst("Nemesis", "BurnAmount", 5);
+        _fadingPowerType = AfpReflection.RequireType("ActsFromThePast.FadingPower");
+        _shiftingPowerType = AfpReflection.RequireType("ActsFromThePast.ShiftingPower");
+        _shiftingStrengthDownType = AfpReflection.RequireType("ActsFromThePast.ShiftingStrengthDownPower");
+        _ = AfpReflection.RequireOverride("FadingPower", "BeforeSideTurnEndEarly", 3);
+        _ = AfpReflection.RequireOverride("ShiftingPower", "AfterDamageReceived", 6);
+        _transientIncrementDamage = AfpReflection.RequireConst("Transient", "IncrementDmg", 10);
     }
 
     public static void RegisterAll()
@@ -399,6 +414,95 @@ internal static class BeyondMoveEffects
         // 「有无实体化」之间切换。这条走本轮新增的「非 Power 模型」入口。
         ThirdPartyAdapterRegistry.RegisterSideTurnEndModel("Nemesis", NemesisSideTurnEnd);
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Nemesis"));
+
+        // --- 瞬逝者（Transient，第三幕） ---
+        // 开场挂 FadingPower（A8+ 6／否则 5）与 1 层 ShiftingPower 在 AfterAddedToRoom（已在根里）。
+        // 只有一个 ATTACK 行动：伤害 = StartingDeathDmg + _count * IncrementDmg（现算），打完 _count++。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Transient", "_count");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("Transient", "StartingDeathDmg");
+        ThirdPartyAdapterRegistry.RegisterMonsterAttackValues("Transient", "ATTACK", TransientAttack);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Transient", "ATTACK", TransientAttackEffect);
+        // FadingPower.BeforeSideTurnEndEarly：自己那一方回合末递减，最后一层时直接死掉（源码里还有烟雾特效）。
+        BeforeSideTurnEndMirrors.RegisterEarly(_fadingPowerType, FadingPowerTurnEnd);
+        // ShiftingPower.AfterDamageReceived：挨到任何真伤害就按 TotalDamage 给自己叠一层负数临时力量
+        // （ShiftingStrengthDownPower，TemporaryStrengthPower 的子类；核心按运行时类型的施加入口已存在）。
+        AfterDamageReceivedMirrors.Register(_shiftingPowerType, ShiftingPowerDamageReceived);
+    }
+
+    /// <summary>
+    /// Transient.Attack：伤害 = <c>StartingDeathDmg + _count * IncrementDmg</c>（单段；单人下那个
+    /// 多人倍率恒为 1，源码只在玩家人数 &gt; 1 时才改它）。
+    /// </summary>
+    private static BranchMonsterAttack TransientAttack(
+        SimulatedCombatState combat,
+        MonsterModel monster)
+        => new(
+            combat.GetMonsterStaticInt(monster.Creature, "StartingDeathDmg")
+                + combat.GetMonsterInt(monster.Creature, "_count") * _transientIncrementDamage,
+            1);
+
+    /// <summary>Transient.Attack 的行动效果：攻击结算之后把 <c>_count</c> +1（下一次打得更疼）。</summary>
+    private static bool TransientAttackEffect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterInt(
+            move.Owner,
+            "_count",
+            combat.GetMonsterInt(move.Owner, "_count") + 1);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>FadingPower.BeforeSideTurnEndEarly</c>：自己那一方回合末；层数 &lt;= 1 时（只要还活着）
+    /// 直接把它杀死，否则减 1 层。
+    /// </summary>
+    private static void FadingPowerTurnEnd(AbstractModel model, BeforeSideTurnEndMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Side != power.Owner.Side)
+            return;
+        if (power.Amount > 1)
+        {
+            ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+                ?? throw new PredictionUnsupportedException("瞬逝缺少可写的预测状态。");
+            effects.SetPowerAmount(power, power.Amount - 1);
+            return;
+        }
+        if (context.State.GetCreature(power.Owner).IsDead)
+            return;
+        context.Simulator.Kill(power.Owner);
+    }
+
+    /// <summary>
+    /// AFTP <c>ShiftingPower.AfterDamageReceived</c>：持有者挨到 <c>TotalDamage &gt; 0</c> 的伤害时，
+    /// 按这个数值给自己叠一层 <c>ShiftingStrengthDownPower</c>（负数临时力量，回合末恢复）。
+    /// </summary>
+    private static void ShiftingPowerDamageReceived(
+        AbstractModel model,
+        AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner || context.Result.TotalDamage <= 0)
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+        {
+            throw new PredictionUnsupportedException("漂流缺少可写的预测状态。");
+        }
+        combat.ApplyTemporaryStrengthLoss(
+            _shiftingStrengthDownType,
+            power.Owner,
+            context.Result.TotalDamage,
+            power.Owner,
+            null);
     }
 
     /// <summary>Nemesis.TriBurn：攻击意图之外就是往弃牌堆底部塞 <c>BurnAmount</c> 张 Burn。</summary>

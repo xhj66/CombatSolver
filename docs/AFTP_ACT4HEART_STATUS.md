@@ -950,6 +950,26 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.38 第三幕：瞬逝者（`Transient`）
+
+**§4.4 的缺口表在这一条上要更正**：当时把「按 `Type` 施加第三方 `TemporaryStrengthPower` 子类」列为缺能力，
+但核心里其实**早就有**按运行时类型的入口 `SimulatedCombatState.ApplyTemporaryStrengthLoss(Type, …)`
+（与 `ApplyPower(Type, …)` 同一套「编译泛型委托」写法），所以这一批**没有改动本体**。
+
+| 部位 | 源码（`ActsFromThePast.Transient`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 挂 `FadingPower`（A8+ 6／否则 5）与 1 层 `ShiftingPower`；多人倍率只在人数 > 1 时才改（单人恒 1） | 不需要代码（已在根里） |
+| `ATTACK`（唯一行动，自循环） | `DynamicSingleAttackIntent(() => StartingDeathDmg + Count * 10)`，回调打完把 `Count++` | `RegisterMonsterAttackValues("Transient","ATTACK", …)`：`StartingDeathDmg`（A9+ 40／否则 30，静态数值成员）＋ `_count × IncrementDmg`（自检钉死 10）；行动效果里 `_count++`；`_count` 进状态名单 |
+| `FadingPower.BeforeSideTurnEndEarly` | 自己那一方回合末：层数 ≤ 1 时（只要还活着）**直接死掉**，否则减 1 层 | `BeforeSideTurnEndMirrors.RegisterEarly(类型, …)`（既有入口）：最后一层走 `simulator.Kill(owner)` |
+| `ShiftingPower.AfterDamageReceived` | 持有者挨到 `TotalDamage > 0` 的伤害 ⇒ 按这个数值给自己叠一层 `ShiftingStrengthDownPower`（负数临时力量，回合末恢复） | `AfterDamageReceivedMirrors.Register(类型, …)`：`combat.ApplyTemporaryStrengthLoss(ShiftingStrengthDownPower 类型, owner, TotalDamage, owner, null)` |
+
+自检用 `RequireOverride` 钉住 `FadingPower.BeforeSideTurnEndEarly`（3 参）与 `ShiftingPower.AfterDamageReceived`
+（6 参），三个类型都走 `RequireType`。
+
+**未验证**：没有在游戏内打过「瞬逝者」遭遇，伤害递增曲线、Fading 的最后一击、挨打叠的负力量与回合末恢复
+都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1289,7 +1309,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | ~~`ShelledParasite`~~（已适配 §2.33） | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
 | 二 | ~~`Byrd`~~（已适配 §2.36） | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
-| 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
+| 三 | ~~`Transient`~~（已适配 §2.38；§4.4 原先列的「缺按 Type 施加临时力量的入口」是**误判**——`ApplyTemporaryStrengthLoss(Type, …)` 早已存在） |
 | 三 | ~~`Nemesis`~~（已适配 §2.37） | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
 | 三 | `WrithingMass` | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
 | 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |

@@ -23,6 +23,16 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第三幕瞬逝者（`Transient`）（2026-09-21）
+
+- 本批**没有改动本体**：§4.4 原先把「按 `Type` 施加第三方 `TemporaryStrengthPower` 子类」列为缺能力，
+  实际核心里早就有 `SimulatedCombatState.ApplyTemporaryStrengthLoss(Type, …)`（与 `ApplyPower(Type, …)`
+  同一套编译泛型委托），所以 `ShiftingPower` 那条直接调用即可；缺口表已更正。
+- 本体适配：唯一行动 `ATTACK` 的伤害现算（`StartingDeathDmg + _count × IncrementDmg`，走动态攻击值入口），
+  行动效果里 `_count++`（`_count` 进状态名单）；`FadingPower.BeforeSideTurnEndEarly`（既有入口）在最后一层
+  直接把它杀死；`ShiftingPower.AfterDamageReceived` 按 `TotalDamage` 叠负数临时力量；开场那两个 Power 与
+  多人倍率都在 `AfterAddedToRoom`（单人恒 1）。逐条对照见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.38。
 ## 未发布：第三幕复仇女神（`Nemesis`）与本体「非 Power 模型回合末」入口（2026-09-21）
 
 - 复仇女神自己（怪物模型）重写了常规（非 Late）`AfterSideTurnEnd`，在敌人回合末切换无实体化；
