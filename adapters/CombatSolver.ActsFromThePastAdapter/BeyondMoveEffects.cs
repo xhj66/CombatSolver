@@ -1,5 +1,7 @@
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using CombatSolver.Engine.Common;
@@ -21,6 +23,7 @@ internal static class BeyondMoveEffects
         "Repulsor",
         "SnakeDagger",
         "Spiker",
+        "OrbWalker",
     ];
 
     /// <summary>Repulsor 的 Daze 张数（AFTP <c>DazeAmount</c>）。</summary>
@@ -53,6 +56,57 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SnakeDagger", "WOUND_STAB", SnakeDaggerWoundStab);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SnakeDagger", "EXPLODE", SnakeDaggerExplode);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("SnakeDagger", "EXPLODE");
+
+        // OrbWalker：LASER 的单次攻击由通用攻击循环结算，这里补它塞的两张 Burn——**一张进弃牌堆底部、
+        // 一张进抽牌堆随机位置**（源码就是两次不同的 AddGeneratedCardToCombat，不是同一种入堆）。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("OrbWalker", "LASER", OrbWalkerLaser);
+
+        // OrbWalker 开场挂的那个 AFTP StrengthUpPower 重写的是**常规（非 Late）AfterSideTurnEnd**：
+        // 自己那一方回合末按层数给自己加力量。开场的施加发生在 AfterAddedToRoom（已在根里），
+        // 这里只登记它在回合末的行为——这也是本轮新入口的第一家用户。
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndPower("StrengthUpPower", StrengthUpPowerTurnEnd);
+    }
+
+    /// <summary>
+    /// OrbWalker.Laser：攻击之后给每个目标塞两张 Burn——**弃牌堆底部一张、抽牌堆随机位置一张**
+    /// （源码里是两次不同的 <c>AddGeneratedCardToCombat</c>）。
+    /// </summary>
+    private static bool OrbWalkerLaser(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = combat;
+        _ = move;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.AddToCombat<Burn>(player, PileType.Discard, 1, null, CardPilePosition.Bottom);
+        simulator.AddToCombat<Burn>(player, PileType.Draw, 1, null, CardPilePosition.Random);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>StrengthUpPower.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末按层数给自己加力量。
+    /// </summary>
+    /// <remarks>
+    /// 源码的判据是 <c>side == Owner.Side</c>，这里逐字照抄；层数直接读 <c>power.Amount</c>
+    /// （施加时的 <c>StrengthUpAmount</c> 由 <c>AfterAddedToRoom</c> 在根里就写好了）。
+    /// </remarks>
+    private static void StrengthUpPowerTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power,
+        CombatSide side,
+        IReadOnlyCollection<Creature> participants)
+    {
+        _ = simulator;
+        _ = participants;
+        if (side != power.Owner.Side)
+            return;
+        combat.Apply<StrengthPower>(power.Owner, power.Amount, power.Owner);
     }
 
     /// <summary>Repulsor.Daze：给每个活着的目标往抽牌堆随机位置塞 <c>DazeAmount</c> 张 Dazed。</summary>

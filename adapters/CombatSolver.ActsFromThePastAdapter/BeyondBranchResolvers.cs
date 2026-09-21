@@ -26,11 +26,12 @@ internal static class BeyondBranchResolvers
     {
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Repulsor", "MOVE_BRANCH", Repulsor);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Spiker", "MOVE_BRANCH", Spiker);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("OrbWalker", "MOVE_BRANCH", OrbWalker);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
-    internal static readonly string[] RegisteredMonsterTypes = ["Repulsor", "Spiker"];
+    internal static readonly string[] RegisteredMonsterTypes = ["Repulsor", "Spiker", "OrbWalker"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -40,7 +41,35 @@ internal static class BeyondBranchResolvers
     [
         ("Repulsor", "MOVE_BRANCH"),
         ("Spiker", "MOVE_BRANCH"),
+        ("OrbWalker", "MOVE_BRANCH"),
     ];
+
+    /// <summary>
+    /// OrbWalker.SelectNextMove：先抽一次 RNG；40 以下时最近**连着两次**不是 CLAW 就 CLAW、否则 LASER；
+    /// 40 及以上时最近连着两次不是 LASER 就 LASER、否则 CLAW。不写任何自己的标量（纯读取）。
+    /// </summary>
+    private static string OrbWalker(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = monster;
+        _ = branchId;
+        _ = combat;
+        _ = simulator;
+        int num = rng.NextInt(100);
+        if (num < 40)
+            return LastTwoMoves(log, "CLAW") ? "LASER" : "CLAW";
+        return LastTwoMoves(log, "LASER") ? "CLAW" : "LASER";
+    }
+
+    private static bool LastTwoMoves(IReadOnlyList<string> log, string moveId)
+        => log.Count > 1
+            && string.Equals(log[^1], moveId, StringComparison.Ordinal)
+            && string.Equals(log[^2], moveId, StringComparison.Ordinal);
 
     /// <summary>
     /// Spiker.SelectNextMove：先看自己的荆棘次数——**超过 5 次就直接攻击且一次 RNG 都不抽**；

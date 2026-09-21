@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕球体行者（`OrbWalker`）——常规回合末入口第一家用户（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`BeyondMoveEffects` 里 `RegisterSideTurnEndPower("StrengthUpPower", …)`、
+  `StrengthUpPowerTurnEnd`（`if (side == power.Owner.Side) combat.Apply<StrengthPower>(power.Owner,
+  power.Amount, power.Owner)`，与源码逐字一致）、`OrbWalkerLaser`（`AddToCombat<Burn>(player,
+  PileType 3, 1, null, Bottom)` ＋ `AddToCombat<Burn>(player, PileType 1, 1, null, Random)`，
+  对应源码两次不同的 `AddGeneratedCardToCombat`）、`BeyondBranchResolvers` 的 `OrbWalker.MOVE_BRANCH`
+  解析器（先 `NextInt(100)`，`< 40` 时看 `LastTwoMoves("CLAW")`、否则看 `LastTwoMoves("LASER")`）
+  与纯读取声明全部在场；部署产物与工作区构建哈希逐字节相同（AFTP 67,584 B；核心本轮未改）。
+- 开场那个 `StrengthUpPower`（`StrengthUpAmount`＝A9+ 5／否则 3）由源码 `AfterAddedToRoom` 施加、
+  根捕获时已在实机实例上，因此**没有**适配代码；回合末的加力量行为走上一轮新加的
+  `RegisterSideTurnEndPower`（[第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13），这是该入口的第一家用户。
+- **未验证**：没有在游戏内打过「球体行者」遭遇，每回合加力量、两张 Burn 的两种入堆位置、分支的
+  两次「连出两次」判定都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：本体新增「常规回合末（非 Late）AfterSideTurnEnd」第三方登记（2026-09-21）
 
 - 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；已部署产物反编译核对：

@@ -12,6 +12,16 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第三幕球体行者（`OrbWalker`）（2026-09-21）
+
+- 上一轮那个「常规（非 Late）`AfterSideTurnEnd`」入口的第一家用户：AFTP 的 `StrengthUpPower` 在自己
+  那一方回合末按层数给自己加力量，登记成 `RegisterSideTurnEndPower("StrengthUpPower", …)`
+  （判据 `side == power.Owner.Side` 逐字照抄）。开场的施加发生在 `AfterAddedToRoom`、根捕获时已在
+  实机实例上，所以没有额外代码。
+- `OrbWalker` 本身：`MOVE_BRANCH` 只读 rng 与行动历史（已声明纯读取）；`LASER` 的攻击由通用攻击循环
+  结算，效果侧补源码那**两张分两种入堆**的 Burn（弃牌堆底部 1 张 + 抽牌堆随机位置 1 张）；`CLAW` 是
+  常量构造攻击。逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.21。
+
 ## 未发布：本体新增「常规回合末（非 Late）AfterSideTurnEnd」第三方登记（2026-09-21）
 
 - 求解器的回合末一直分两段，但只有**晚期**那段有第三方入口（`AfterSideTurnEndLateMirrors`）；原版那一批
