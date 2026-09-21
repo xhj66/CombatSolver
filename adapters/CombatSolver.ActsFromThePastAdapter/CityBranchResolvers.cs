@@ -28,16 +28,26 @@ internal static class CityBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Mystic", "MOVE_BRANCH", Mystic);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Mugger", "MUG_BRANCH", Mugger);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Romeo", "MOVE_BRANCH", Romeo);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Chosen", "MOVE_BRANCH", Chosen);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Champ", "MOVE_BRANCH", Champ);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
-    internal static readonly string[] RegisteredMonsterTypes = ["Centurion", "Mystic", "Mugger", "Romeo"];
+    internal static readonly string[] RegisteredMonsterTypes =
+        ["Centurion", "Mystic", "Mugger", "Romeo", "Chosen", "Champ"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：都只读实机 StateLog、传入的 rng 与自己的标量字段，
     /// 不写实机状态、不下命令；<c>Mystic</c> 那条另外读**模拟状态**里队友的血量（也不是实机字段）。
     /// </summary>
+    /// <remarks>
+    /// **`Chosen` 与 `Champ` 刻意不在名单里**：它们的选择函数会写自己的计数器
+    /// （`Chosen._usedHex`、`Champ._numTurns` / `_thresholdReached` / `_forgeTimes`）。
+    /// 预览默认不调用未声明的第三方分支，正是为了不让这种「选择即记账」的委托去改实机状态——
+    /// 往昔之书的 `StabCount++` 就是这么把真实战斗改成 7×15 的（§2.9）。这两只的预览会在分支处停下
+    /// 并显示「预览可能不完整」，搜索侧照常按登记的解析器算。
+    /// </remarks>
     internal static readonly (string Monster, string Branch)[] PureSelectors =
     [
         ("Centurion", "MOVE_BRANCH"),
@@ -45,6 +55,80 @@ internal static class CityBranchResolvers
         ("Mugger", "MUG_BRANCH"),
         ("Romeo", "MOVE_BRANCH"),
     ];
+
+    /// <summary>
+    /// Chosen.SelectNextMove：开场**必定**先来一次 HEX（并把 <c>UsedHex</c> 置位——这一步会写状态，
+    /// 所以它不在纯读取名单里）；之后若上一步不是 DEBILITATE／DRAIN 就各半概率二选一，否则
+    /// 40% ZAP／60% POKE。RNG 调用顺序与短路逐条照抄（走 HEX 那条一次都不抽）。
+    /// </summary>
+    private static string Chosen(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = simulator;
+        if (!combat.GetMonsterBool(monster.Creature, "_usedHex"))
+        {
+            combat.SetMonsterBool(monster.Creature, "_usedHex", true);
+            return "HEX";
+        }
+        if (!LastMove(log, "DEBILITATE") && !LastMove(log, "DRAIN"))
+            return rng.NextInt(100) < 50 ? "DEBILITATE" : "DRAIN";
+        return rng.NextInt(100) < 40 ? "ZAP" : "POKE";
+    }
+
+    /// <summary>
+    /// Champ.SelectNextMove：先把回合计数 +1；血量掉到**一半以下**且还没触发过就置位并 ANGER；
+    /// 触发过之后只要最近两次都不是 EXECUTE 就 EXECUTE；第 4 回合且还没触发过就清零计数并 TAUNT；
+    /// 否则抽一次 RNG，30% 以下优先锻炉（最多 <c>ForgeThreshold</c> 次、不连出）、再 GLOAT、
+    /// 再 55% 以下 FACE_SLAP、否则 HEAVY_SLASH／FACE_SLAP。
+    /// </summary>
+    private static string Champ(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        int numTurns = combat.GetMonsterInt(monster.Creature, "_numTurns") + 1;
+        combat.SetMonsterInt(monster.Creature, "_numTurns", numTurns);
+        SimCreatureState creature = simulator.State.GetCreature(monster.Creature);
+        bool thresholdReached = combat.GetMonsterBool(monster.Creature, "_thresholdReached");
+        if (creature.CurrentHp < creature.MaxHp / 2 && !thresholdReached)
+        {
+            combat.SetMonsterBool(monster.Creature, "_thresholdReached", true);
+            return "ANGER";
+        }
+        if (thresholdReached && !LastMove(log, "EXECUTE") && !LastMoveBefore(log, "EXECUTE"))
+            return "EXECUTE";
+        if (numTurns == 4 && !thresholdReached)
+        {
+            combat.SetMonsterInt(monster.Creature, "_numTurns", 0);
+            return "TAUNT";
+        }
+        int forgeTimes = combat.GetMonsterInt(monster.Creature, "_forgeTimes");
+        int num = rng.NextInt(100);
+        if (!LastMove(log, "DEFENSIVE_STANCE") && forgeTimes < champForgeThreshold && num < 30)
+        {
+            combat.SetMonsterInt(monster.Creature, "_forgeTimes", forgeTimes + 1);
+            return "DEFENSIVE_STANCE";
+        }
+        if (!LastMove(log, "GLOAT") && !LastMove(log, "DEFENSIVE_STANCE") && num < 30)
+            return "GLOAT";
+        if (!LastMove(log, "FACE_SLAP") && num < 55)
+            return "FACE_SLAP";
+        return LastMove(log, "HEAVY_SLASH") ? "FACE_SLAP" : "HEAVY_SLASH";
+    }
+
+    /// <summary>Champ 的锻炉次数上限（AFTP <c>ForgeThreshold</c>），由 <c>CityMoveEffects.Verify</c> 钉死。</summary>
+    internal static int champForgeThreshold = 2;
+
+    private static bool LastMoveBefore(IReadOnlyList<string> log, string moveId)
+        => log.Count > 1 && string.Equals(log[^2], moveId, StringComparison.Ordinal);
 
     /// <summary>
     /// Mugger.SelectAfterMug：与第一幕 Looter 同型——Mug／BigSwipe 出手不满两次就再来一次 Mug，

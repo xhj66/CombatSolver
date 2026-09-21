@@ -1,5 +1,6 @@
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Powers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
@@ -39,6 +40,8 @@ internal static class CityMoveEffects
         "Romeo",
         "SphericGuardian",
         "Snecko",
+        "Chosen",
+        "Champ",
     ];
 
     /// <summary>Bear 的冲刺格挡（AFTP <c>LungeBlock</c>）。</summary>
@@ -51,6 +54,13 @@ internal static class CityMoveEffects
     private static int _sphericHardenBlock;
     private static int _sphericFrailAmount;
 
+    /// <summary>灾祸（Chosen）与冠军（Champ）钉死的常量。</summary>
+    private static int _chosenDebilitateVuln;
+    private static int _chosenDrainStrength;
+    private static int _chosenDrainWeak;
+    private static int _chosenHexAmount;
+    private static int _champDebuffAmount;
+
     public static void Verify()
     {
         foreach (string typeName in MonsterTypes)
@@ -61,6 +71,12 @@ internal static class CityMoveEffects
         _romeoWeakAmount = AfpReflection.RequireConst("Romeo", "WeakAmount", 3);
         _sphericHardenBlock = AfpReflection.RequireConst("SphericGuardian", "HardenBlock", 15);
         _sphericFrailAmount = AfpReflection.RequireConst("SphericGuardian", "FrailAmount", 5);
+        _chosenDebilitateVuln = AfpReflection.RequireConst("Chosen", "DebilitateVuln", 2);
+        _chosenDrainStrength = AfpReflection.RequireConst("Chosen", "DrainStrength", 3);
+        _chosenDrainWeak = AfpReflection.RequireConst("Chosen", "DrainWeak", 3);
+        _chosenHexAmount = AfpReflection.RequireConst("Chosen", "HexAmount", 1);
+        _champDebuffAmount = AfpReflection.RequireConst("Champ", "DebuffAmount", 2);
+        CityBranchResolvers.champForgeThreshold = AfpReflection.RequireConst("Champ", "ForgeThreshold", 2);
         // 蛇怪的尾鞭按 A9 分支，判据是游戏内部的 AscensionHelper.HasAscension（反射调用，先核对形状）。
         AfpReflection.VerifyAscensionHelper();
     }
@@ -137,6 +153,182 @@ internal static class CityMoveEffects
         // Snecko：Glare 上困惑、TailWhip 攻击后上易伤（A9 及以上再加虚弱）；Bite 是纯攻击。
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Snecko", "GLARE", SneckoGlare);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Snecko", "TAIL_WHIP", SneckoTailWhip);
+
+        // --- 灾祸（Chosen）：开场必 HEX，之后减益／攻击轮换 ---
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("Chosen", "_usedHex");
+        // HexMove：给活着的目标各 1 层灾祸（能力镜像见 CityHooks）
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Chosen", "HEX", ChosenHex);
+        // Debilitate：攻击 + DebilitateVuln 层易伤；Drain：DrainWeak 层虚弱 + 自己 DrainStrength 点力量
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Chosen", "DEBILITATE", ChosenDebilitate);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Chosen", "DRAIN", ChosenDrain);
+
+        // --- 冠军（Champ，第二幕首领） ---
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers(
+            "Champ",
+            "StrengthAmount",
+            "ForgeAmount",
+            "BlockAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers(
+            "Champ",
+            "_numTurns",
+            "_forgeTimes",
+            "_thresholdReached");
+        // DefensiveStance：BlockAmount 点格挡 + ForgeAmount 层金属化（回合末镜像见 CityHooks）
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "Champ",
+            "DEFENSIVE_STANCE",
+            ChampDefensiveStance);
+        // FaceSlap：攻击 + Frail 2 + Vulnerable 2；Taunt：Weak 2 + Vulnerable 2；Gloat：StrengthAmount 力量
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Champ", "FACE_SLAP", ChampFaceSlap);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Champ", "TAUNT", ChampTaunt);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Champ", "GLOAT", ChampGloat);
+        // Anger：先清掉自己身上所有减益，再加 StrengthAmount × 3 点力量
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Champ", "ANGER", ChampAnger);
+    }
+
+    /// <summary>Chosen.HexMove：给每个活着的目标 <c>HexAmount</c> 层灾祸。</summary>
+    private static bool ChosenHex(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyPower(CityHooks.HexType, player, _chosenHexAmount, move.Owner);
+        return true;
+    }
+
+    /// <summary>Chosen.Debilitate：给每个活着的目标 <c>DebilitateVuln</c> 层易伤。</summary>
+    private static bool ChosenDebilitate(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyFromMonster<VulnerablePower>(player, _chosenDebilitateVuln, move.Owner);
+        return true;
+    }
+
+    /// <summary>Chosen.Drain：给玩家 <c>DrainWeak</c> 层虚弱，再给自己 <c>DrainStrength</c> 点力量。</summary>
+    private static bool ChosenDrain(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+            combat.ApplyFromMonster<WeakPower>(player, _chosenDrainWeak, move.Owner);
+        combat.Apply<StrengthPower>(move.Owner, _chosenDrainStrength, move.Owner);
+        return true;
+    }
+
+    /// <summary>Champ.DefensiveStance：给自己 <c>BlockAmount</c> 点格挡与 <c>ForgeAmount</c> 层金属化。</summary>
+    private static bool ChampDefensiveStance(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "BlockAmount"),
+            ValueProp.Move);
+        combat.ApplyPower(
+            CityHooks.MetallicizeType,
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "ForgeAmount"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>Champ.FaceSlap：给每个活着的目标 <c>DebuffAmount</c> 层破甲与易伤。</summary>
+    private static bool ChampFaceSlap(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.ApplyFromMonster<FrailPower>(player, _champDebuffAmount, move.Owner);
+        combat.ApplyFromMonster<VulnerablePower>(player, _champDebuffAmount, move.Owner);
+        return true;
+    }
+
+    /// <summary>Champ.Taunt：给每个活着的目标 <c>DebuffAmount</c> 层虚弱与易伤。</summary>
+    private static bool ChampTaunt(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        if (!simulator.State.GetCreature(player).IsAlive)
+            return true;
+        combat.ApplyFromMonster<WeakPower>(player, _champDebuffAmount, move.Owner);
+        combat.ApplyFromMonster<VulnerablePower>(player, _champDebuffAmount, move.Owner);
+        return true;
+    }
+
+    /// <summary>Champ.Gloat：给自己 <c>StrengthAmount</c> 点力量。</summary>
+    private static bool ChampGloat(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        combat.Apply<StrengthPower>(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "StrengthAmount"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// Champ.Anger：先把自己身上**所有减益**（<c>PowerType.Debuff</c>）移除，再加
+    /// <c>StrengthAmount × 3</c> 点力量。
+    /// </summary>
+    private static bool ChampAnger(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        foreach (PowerModel power in combat.EffectivePowers()
+                     .Where(power => power.Owner == move.Owner && power.Type == PowerType.Debuff)
+                     .ToArray())
+        {
+            combat.SetPowerAmount(power, 0);
+        }
+        combat.Apply<StrengthPower>(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "StrengthAmount") * 3,
+            move.Owner);
+        return true;
     }
 
     /// <summary>往昔之章里「什么都不做」的行动（UnknownIntent 的纯表演招），登记成空操作。</summary>

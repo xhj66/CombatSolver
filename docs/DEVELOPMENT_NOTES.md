@@ -12,6 +12,17 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第二幕首领与精英（Chosen／Champ）（2026-09-21）
+
+- 再补两只第二幕怪物：`Chosen`（开场必上灾祸、之后减益／攻击轮换）与 `Champ`（第二幕首领：半血转阶段、
+  锻炉上限、第 4 回合嘲讽）。两只的分支**都会写自己的计数**，所以**刻意不进**「纯读取」名单——
+  预览默认不调用未声明的第三方选择函数（往昔之书 `StabCount++` 那个事故，§2.9）。`Champ` 的半血判定
+  读模拟状态的 `CurrentHp`／`MaxHp`（§2.13 给分支解析器补的参数）。
+- 两个能力镜像都走既有入口：`MetallicizePower.BeforeSideTurnEndEarly`（锻炉，回合末按层数得格挡）
+  走 `BeforeSideTurnEndMirrors.RegisterEarly`；`HexOriginalPower.AfterCardPlayed`（灾祸，打出非攻击牌
+  就往抽牌堆塞 Dazed）走 `AfterCardPlayedMirrors.Register`。顺带把这两只的死亡钩子登记为忽略。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.16。
+
 ## 未发布：行动的攻击前钩子与第二幕三只（Romeo／球状守卫／蛇怪）（2026-09-21）
 
 - 本体新增 `ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack(怪物类型名, 行动 Id, handler)`：

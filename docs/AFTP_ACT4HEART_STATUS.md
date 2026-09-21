@@ -498,6 +498,31 @@ ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack("SphericGuardian", "HA
 
 ---
 
+### 2.16 第二幕：Chosen（灾祸）与 Champ（冠军，首领）
+
+| 怪物 | 分支 | 适配内容 |
+| --- | --- | --- |
+| `Chosen` | `MOVE_BRANCH`：**开场必 HEX 并把 `UsedHex` 置位**；之后「上一步不是 DEBILITATE／DRAIN」就各半概率二选一，否则 40% ZAP／60% POKE | `_usedHex` 播种；`HEX` 给玩家 1 层灾祸；`DEBILITATE` 攻击 + 2 层易伤；`DRAIN` 3 层虚弱 + 自己 3 点力量；`ZAP`／`POKE` 是纯攻击 |
+| `Champ` | `MOVE_BRANCH`：回合计数 +1 → 掉到半血以下且未触发过 ⇒ `ANGER`；触发过且最近两次不是 `EXECUTE` ⇒ `EXECUTE`；第 4 回合且未触发 ⇒ 计数清零 + `TAUNT`；否则抽 RNG（30% 以下优先锻炉，最多 2 次且不连出；再 `GLOAT`；再 55% 以下 `FACE_SLAP`；否则 `HEAVY_SLASH`） | `_numTurns`／`_forgeTimes`／`_thresholdReached` 播种；`DEFENSIVE_STANCE` 给 `BlockAmount` 格挡 + `ForgeAmount` 层金属化；`FACE_SLAP` 2 破甲 + 2 易伤；`TAUNT` 2 虚弱 + 2 易伤；`GLOAT` `StrengthAmount` 力量；`ANGER` **先清掉自己所有减益**、再加 `StrengthAmount × 3` 力量 |
+
+**两条分支都会写自己的计数**（`Chosen._usedHex`、`Champ._numTurns` / `_thresholdReached` / `_forgeTimes`），
+所以它们**刻意不进**「纯读取」名单：预览默认不调用未声明的第三方选择函数，正是为了不让这种
+「选择即记账」的委托去改实机状态（往昔之书的 `StabCount++` 就是这么把真实战斗改成 7×15 的，见 §2.9）。
+代价是这两只的预览会在分支处停下并显示「预览可能不完整」，搜索侧照常按登记的解析器算。
+`Champ` 的半血判定读的是**模拟状态**的 `CurrentHp`／`MaxHp`（§2.13 给解析器补的那个参数）。
+
+**两个能力镜像**（都只是把源码那三五行搬到模拟状态上）：
+
+- `MetallicizePower.BeforeSideTurnEndEarly`（锻炉）：自己那一方回合末按层数获得格挡，`ValueProp.Unpowered`
+  → `BeforeSideTurnEndMirrors.RegisterEarly`（这张表本来就有，心脏适配的 `MetallicizePowerA4h` 用的是同一个入口）；
+- `HexOriginalPower.AfterCardPlayed`（灾祸）：出牌者就是持有者且打出的**不是攻击牌**时，往抽牌堆塞
+  `Amount` 张 `Dazed`（随机位置）→ `AfterCardPlayedMirrors.Register`。
+
+顺带把这两只的死亡钩子（`Chosen.BeforeDeath` 一句音效、`Champ.BeforeDeath` 屏幕震动 + 音效）
+登记为忽略。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -742,7 +767,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整） | SnakeDagger |
 | 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14） | Repulsor、Exploder、Spiker、OrbWalker |
-| 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14） | — |
+| 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
 | 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |

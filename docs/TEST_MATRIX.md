@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕首领与精英（Chosen／Champ）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`Chosen`／`Champ` 两条 `MOVE_BRANCH` 解析器（写 `_usedHex`、
+  `_numTurns`／`_forgeTimes`／`_thresholdReached`；`Champ` 用模拟状态 `CurrentHp < MaxHp / 2`）、
+  `Chosen` 一条状态成员 + `Champ` 三条状态成员与三个静态数值成员、八条行动效果
+  （含 `ANGER` 先 `SetPowerAmount(减益, 0)` 再 `StrengthAmount × 3`）、
+  `MetallicizePower` 的 `BeforeSideTurnEndMirrors.RegisterEarly`（`GainBlock(Amount, Unpowered)`）、
+  `HexOriginalPower` 的 `AfterCardPlayedMirrors.Register`（`AddGeneratedCardsToCombat<Dazed>(Draw, …, Random)`）、
+  四条 `RegisterIgnored` 与七条 `RequireConst` 钉死全部在场；部署产物与工作区构建哈希逐字节相同
+  （AFTP 64,000 B；核心本轮未改）。
+- `Chosen`／`Champ` **未**登记为「纯读取」分支是本轮的关键决定：两者的选择函数会写自己的计数器，
+  预览调用它们就是 §2.9 那个事故的重演。已写进 §2.16 与手册。
+- **未验证**：没有在游戏内打过「灾祸」「冠军」遭遇，半血转阶段、锻炉上限与第 4 回合嘲讽、
+  灾祸的塞牌位置、`MetallicizePower` 的回合末格挡都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：行动的攻击前钩子与第二幕三只（Romeo／球状守卫／蛇怪）（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
