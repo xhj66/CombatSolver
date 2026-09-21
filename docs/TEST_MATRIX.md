@@ -25,6 +25,12 @@
 - 门禁扩展后重跑：`ADAPTER_TYPE_NAMES_OK … overrides=59 consts=44 stateMembers=92`——
   `RegisterMonsterStateMembers`／`RegisterStaticIntMembers` 的 92 个成员名在已安装 1.0.5 上全部存在
   （这两个入口登记时不校验，写错要等根捕获才炸）。
+- 门禁覆盖不到、只有运行期才检查的形状前提另做一次性离线核对（读 PE 元数据）：`MalleablePower._pendingBlock`
+  实例字段存在；`ClassicSlimedOnPlayPatch.Prefix` 是 `static bool (Slimed, PlayerChoiceContext, CardPlay, out Task)`
+  且没有 `[HarmonyPriority]`／before／after；`ClassicSlimedTracker.IsClassicSlimed` 是静态
+  `SpireField<CardModel,bool>`；BaseLib `SpireField<,>` 的 `_table`／`_defaultVal` 形状未变；
+  `ActsFromThePastConfig.LegacyEnemiesGiveClassicSlimed` 仍是静态 `bool` 属性。仍只剩运行期环境事实：
+  `Slimed.OnPlay` 当下的 Harmony 组合，以及 `IsClassicSlimed` 在初始化时已就绪。
 - **未验证**：仍然没有启动游戏，未跑该问题包的检查点恢复／搜索／部署；「部署后的适配在实机里
   自检通过并登记成功」要由下一次游戏会话回答。隔离的无人测试进程加载不了真实 AFTP 程序集，
   不能替代这次实机验证。
