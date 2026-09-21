@@ -51,6 +51,7 @@ internal static class ExordiumBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("AcidSlimeLarge", "MOVE_BRANCH", AcidSlimeLarge);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SpikeSlimeLarge", "MOVE_BRANCH", SpikeSlimeLarge);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SlimeBoss", "MOVE_BRANCH", SlimeBoss);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("GremlinShield", "MOVE_BRANCH", GremlinShield);
 
         // 上面这些分支的选择函数都逐行复核过：只读自己的标量字段与实机 StateLog、只按源码顺序抽传入的
         // rng，不写实机状态、不下命令。声明之后预测器才能照旧在实机上调用它们推演后续回合；
@@ -75,6 +76,7 @@ internal static class ExordiumBranchResolvers
         ("AcidSlimeLarge", "MOVE_BRANCH"),  // 只读 _splitTriggered + RNG + 行动历史
         ("SpikeSlimeLarge", "MOVE_BRANCH"),
         ("SlimeBoss", "MOVE_BRANCH"),
+        ("GremlinShield", "MOVE_BRANCH"),   // 只读队友数
     ];
 
     internal static readonly string[] RegisteredMonsterTypes =
@@ -282,6 +284,19 @@ internal static class ExordiumBranchResolvers
         Rng rng,
         SimulatedCombatState combat)
         => combat.GetMonsterBool(monster.Creature, "_splitTriggered") ? "SPLIT" : "GOOP_SPRAY";
+
+    /// <summary>
+    /// GremlinShield.SelectNextMove：场上还有别的队友就保护（PROTECT），否则直接盾击。
+    /// 源码数的是 <c>GetTeammatesOf(Creature).Count</c>（**含已经倒下但还没离场的**），
+    /// 求解器的同名入口是同一份「己方全体」列表。不抽 RNG。
+    /// </summary>
+    private static string GremlinShield(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat)
+        => combat.GetTeammatesOf(monster.Creature).Count > 1 ? "PROTECT" : "SHIELD_BASH";
 
     // === AFTP 各敌人自带的同名辅助函数 ===
     private static bool LastMove(IReadOnlyList<string> log, string moveId)

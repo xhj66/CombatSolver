@@ -12,6 +12,20 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：私有 RNG 流镜像收口与小鬼盾兵（2026-09-21）
+
+- 求解器本体新增 `src/Prediction/MonsterRngSupport.cs`：`MonsterRngPredictionState`（怪物自己那条
+  `MonsterModel.Rng` 流在预测里的可 Fork 副本，提供 `NextInt` / `NextFloat` / `NextItem` / `Draws`）
+  与 `MonsterRngSupport.State(simulator, monster)`、`VerifyShape()`。心脏适配原来在自己文件里复刻的
+  那份（`ShieldOrbRngPredictionState`）删除并改用共享实现——同一战斗语义只保留一个权威实现
+  （AGENTS.md §6），两套适配的盾兵类抽样走同一条代码路径。
+- AFTP 第一幕再解锁 **GremlinShield**：`MOVE_BRANCH` 按队友数（含死者在内）选 PROTECT／SHIELD_BASH；
+  `Protect` 先按源码的 `Any()` 短路判断有没有存活队友（空列表一次都不抽），再用共享的私有 RNG 状态
+  抽目标、给 `ProtectBlock`（A8+ 11／否则 7）点格挡；已抽次数写进自建标量成员
+  `adapter_gremlin_shield_rng_draws` 进状态指纹。逐条对照、「成立前提」与已知局限见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.12，用法见
+  [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
+
 ## 未发布：AFTP 史莱姆三件套与第三方怪物生成入口（2026-09-21）
 
 - 求解器本体新增 `MonsterSpawnSupport.SpawnByType(…, Type monsterType, …, int? maxHpOverride, …)`：

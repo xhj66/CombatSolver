@@ -145,26 +145,12 @@ internal static class A4hReflection
     }
 
     /// <summary>
-    /// 取出怪物实例自己那条 RNG 流（<c>MonsterModel.Rng</c>）。
-    /// </summary>
-    /// <remarks>
-    /// 这条流由 <c>CombatState.CreateCreature</c> 在战斗开始时按「run 种子 + 坐标 + CombatId」播种，
-    /// 是**每只怪物各自一条**，与 <c>RunRng.MonsterAi</c> 互不影响。原版只拿它做外观（鸡蛋换皮之类），
-    /// 但 Act4Heart 的盾兵把它用在了 <c>bash_move</c> 的球位分支上，所以预测时必须复刻它。
-    /// 读取的是**实机实例**上的流，预测本身不会推动它，因此拿来当「本场战斗当前进度」的起点是准确的。
-    /// </remarks>
-    public static object? LiveMonsterRng(MonsterModel monster)
-    {
-        ArgumentNullException.ThrowIfNull(monster);
-        return monster.Rng;
-    }
-
-    /// <summary>
     /// 自检 <c>MonsterModel.Rng</c> 这个公开访问点还在；盾兵球位分支的抽样复刻完全靠它。
     /// </summary>
     /// <remarks>
     /// 早期版本靠反射读基类私有字段 <c>_rng</c>，但游戏提供了公开的 <c>MonsterModel.Rng</c> 属性，
-    /// 走公开 API 就不必再依赖私有字段名。这里核对的正是这个属性。
+    /// 走公开 API 就不必再依赖私有字段名。这里核对的正是这个属性；实际取流与复刻由求解器本体的
+    /// <c>MonsterRngSupport</c> 负责（与往昔之章适配共用同一份实现）。
     /// </remarks>
     public static void RequireLiveMonsterRngField()
         => RequireInstanceMember(typeof(MonsterModel), nameof(MonsterModel.Rng));

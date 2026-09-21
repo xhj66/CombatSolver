@@ -60,7 +60,7 @@
 
 ## 2. 第一幕覆盖现状
 
-### 2.1 已支持分支选择的怪物（8）
+### 2.1 已支持分支选择的怪物（12）
 
 | 怪物 | 分支 Id | 依赖 |
 | --- | --- | --- |
@@ -75,11 +75,12 @@
 | AcidSlimeLarge | MOVE_BRANCH | `_splitTriggered`（已播种；`SplitPower` 受伤镜像置位），见 §2.11 |
 | SpikeSlimeLarge | MOVE_BRANCH | 同上 |
 | SlimeBoss | MOVE_BRANCH | 同上（另外整场 `GOOP_SPRAY`，见 §2.11） |
+| GremlinShield | MOVE_BRANCH | 队友数（源码数的是含死者在内的己方全体），见 §2.12 |
 
 以上分支逻辑逐字对照 AFTP 源码（`SelectNextMove` / `SelectAfterCharge` / `SelectAfterMug`）复核，
 行动 Id 常量与分支节点 Id 均已核对字面值。
 
-### 2.2 走安全失败路径的怪物（5）
+### 2.2 走安全失败路径的怪物（4）
 
 下列怪物的分支**依赖尚未建模的状态**，因此刻意不登记，保持抛
 `PredictionUnsupportedException`（装一半比不装更糟）：
@@ -90,7 +91,6 @@
 | Hexaghost | MOVE_BRANCH | `_orbActiveCount`（可建模）＋ `DIVIDER` 的伤害由 `ACTIVATE` 按玩家血量现算（`DynamicMultiAttackIntent`），以及 `INFERNO` 的「升级全部 Burn + 再塞 3 张升级 Burn」，后者涉及预测期卡牌升级 |
 | Guardian | OFFENSIVE_BRANCH | `_isOpen` / `CloseUpTriggered` / `_pendingModeShift` + `ModeShiftPower`（受伤累计到阈值触发）、`SharpHidePower`，以及模式切换时的 `SetMoveImmediate(_closeUpState)` |
 | Lagavulin | MAIN_BRANCH | `IsAwake` / `StartsAwake` / `DebuffTurnCount` + `AsleepLagavulinPower`；`WakeUpFromDamage` 走 `CreatureCmd.Stun(…, "ATTACK")` |
-| GremlinShield | MOVE_BRANCH | 分支本身只看**队友数**（`GetTeammatesOf(...).Count > 1`，已可建模）；缺的是 `PROTECT` 的格挡目标由**怪物自己的 Rng**（`MonsterModel.Rng`）抽取，求解器不模拟这条流（与心脏盾兵球位同型，需要 §3.3 那套私有 RNG 镜像） |
 
 ### 2.3 无分支的怪物（10）
 
@@ -389,6 +389,34 @@ new MoveState("STAB", Stab, new DynamicMultiAttackIntent(() => StabDamage, () =>
 
 ---
 
+### 2.12 小鬼盾兵与「私有 RNG 流」的共享镜像
+
+`GremlinShield`（小鬼盾兵）的分支只看队友数，真正难点在行动：
+`Protect` 用**这只怪物自己那条 RNG 流**（`MonsterModel.Rng`）在所有存活队友里抽一个目标。
+
+| 环节 | AFTP 源码 | 适配 |
+| --- | --- | --- |
+| `MOVE_BRANCH` | `GetTeammatesOf(Creature).Count > 1 ? "PROTECT" : "SHIELD_BASH"`（含已经倒下但还没离场的） | 按求解器的同名入口数己方全体；已复核为纯读取并声明放行给预览 |
+| `PROTECT` | `teammates.Any() ? Rng.NextItem(teammates) : Creature` → `GainBlock(target, ProtectBlock, ValueProp.Move, null, false)` | 先建存活队友列表（**空列表一次都不抽**，与源码的 `Any()` 短路一致），再 `MonsterRngSupport.State(...).NextItem(...)`；`ProtectBlock`（A8+ 11／否则 7）走静态数值成员 |
+| 已抽次数 | 无对应字段 | 写进自建标量成员 `adapter_gremlin_shield_rng_draws`（**不进** `RegisterMonsterStateMembers`——实机怪物没有这个成员），指纹遍历整张标量表，于是只差这条流进度的分支不会被去重 |
+
+**共享实现**：这条流原来只有心脏适配在自己的文件里复刻了一份（`ShieldOrbRngPredictionState`）。
+本轮把它提到求解器本体：`src/Prediction/MonsterRngSupport.cs` 的
+`MonsterRngPredictionState` + `MonsterRngSupport.State(simulator, monster)`，提供
+`NextInt` / `NextFloat` / `NextItem`（镜像 `Rng.NextItem` 的「空集合不抽」）与 Fork，
+心跳适配的盾兵球位改用同一份、原地的那个类删掉（`docs/THIRD_PARTY_ADAPTERS.md` §6 的
+「同一战斗语义只能有一个权威实现」）。`MonsterRngSupport.VerifyShape()` 核对
+`MonsterModel.Rng` 这个公开访问点还在，两个适配的自检都会调它。
+
+**成立前提（适配方必须逐行复核）**：实机实例上的当前状态只有在「这条流在战斗里只被这只怪物
+自己的行动推动」时才是准确起点。盾兵与小鬼盾兵都满足（音效与动画走的是 `Rng.Chaotic`，
+种子只由 `CreateCreature` 写过）。**已知局限**：状态是**首次用到时**才从实机拷一份，
+不是根捕获时冻结的——搜索期间实机若自己推动了这条流（同一只怪在同一回合真的行动了），
+拷贝的起点会偏后；与心脏适配原来的行为一致，改成根捕获播种需要给怪物侧补一个
+「根捕获时播种」的入口（见 §4.1 组 3）。
+
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -463,8 +491,9 @@ Act4Heart 新增订阅者时自检失败、整个适配拒绝登记——求解�
 `MonsterModel.Rng`——**每只怪物各自一条**的流（由 `CombatState.CreateCreature` 按
 「run 种子 + 坐标 + CombatId」播种），与 `RunRng.MonsterAi` 互不影响。求解器不模拟这条流，
 因此适配层把实机实例上的当前状态整份搬进一个可 Fork 的分支状态
-（`ShieldOrbRngPredictionState`），在预测里照着源码的抽样顺序复刻，并把已抽次数写进
-一个自建的怪物标量成员（`adapter_spire_shield_orb_rolls`）好让状态指纹看得见这条流的进度。
+（`MonsterRngSupport` / `MonsterRngPredictionState`，**两套适配共用同一份实现**，见 §2.12），
+在预测里照着源码的抽样顺序复刻，并把已抽次数写进一个自建的怪物标量成员
+（`adapter_spire_shield_orb_rolls`）好让状态指纹看得见这条流的进度。
 
 ### 3.4 Power（3 个镜像 + 1 个已知缺口）
 
@@ -633,7 +662,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | Pointy | SnakeDagger |
 | 1 | 分支只读自身标量／队友数 | GremlinShield（缺 `MonsterModel.Rng` 抽目标） | Centurion、GremlinLeader（同缺私有 RNG）、Mystic | Repulsor、Exploder、Spiker、OrbWalker |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
-| 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | GremlinShield | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
+| 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
 | 4 | 新 Power 镜像（第三幕居多） | SplitPower、ModeShiftPower、SharpHidePower、AsleepLagavulinPower、EntangledPower | AngryPower✔、SporeCloudPower✔、PainfulStabsPower、StasisPower、HexOriginalPower、MetallicizePower、PlatedArmorPower、MalleablePower、FlightPower | LifeLinkPower（含内部数据 + 5 个 Should*）、UnawakenedPower、ReactivePower、ShiftingPower、StrengthUpPower、RegenEnemyPower、CuriosityPower、TimeWarpPower、DrawReductionPower、ConstrictedPower、FadingPower |
 | 5 | 强制改写当前行动 / 眩晕 | Guardian（`SetMoveImmediate` + `ModeShiftPower`）、Lagavulin（`CreatureCmd.Stun(…, "ATTACK")`） | ShelledParasite | AwakenedOne |
 | 6 | 缺失的回合阶段 | Hexaghost（`AfterSideTurnEnd` 非 Late 的旧缺口见 §3.4） | JawWorm `HardMode` 的 `BeforeSideTurnStart`（§2.10） | — |

@@ -61,6 +61,7 @@ internal static class ExordiumMoveEffects
         "AcidSlimeLarge",
         "SpikeSlimeLarge",
         "SlimeBoss",
+        "GremlinShield",
     ];
 
     public static void Verify()
@@ -82,6 +83,8 @@ internal static class ExordiumMoveEffects
         _acidSlimeLargeSlimedCount = AfpReflection.RequireConst("AcidSlimeLarge", "SlimedCount", 2);
         _acidSlimeLargeWeakTurns = AfpReflection.RequireConst("AcidSlimeLarge", "WeakTurns", 2);
         _spikeSlimeLargeSlimedCount = AfpReflection.RequireConst("SpikeSlimeLarge", "SlimedCount", 2);
+        // 小鬼盾兵的 Protect 要把自己那条私有 RNG 流搬进预测状态，核对该访问点还在。
+        MonsterRngSupport.VerifyShape();
         GremlinWizardChargeLimit = AfpReflection.RequireConst("GremlinWizard", "ChargeLimit", 3);
     }
 
@@ -163,6 +166,9 @@ internal static class ExordiumMoveEffects
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlimeBoss", "PREP_SLAM", NoEffect);
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SlimeBoss", "SPLIT", SlimeBossSplit);
         ThirdPartyAdapterRegistry.RegisterOwnerRemovingMove("SlimeBoss", "SPLIT");
+
+        // GremlinShield.Protect：给一只随机的存活队友（一只都没有就给自己）ProtectBlock 点格挡
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("GremlinShield", "PROTECT", GremlinShieldProtect);
     }
 
     /// <summary>
@@ -182,6 +188,8 @@ internal static class ExordiumMoveEffects
         //（3/2 与 5/3），根捕获时读一次，之后整场不变。
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SpikeSlimeLarge", "FrailTurns");
         ThirdPartyAdapterRegistry.RegisterStaticIntMembers("SlimeBoss", "SlimedCount");
+        // GremlinShield.ProtectBlock 同样是 AscensionHelper 形式的实例属性（A8+ 11，否则 7）。
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("GremlinShield", "ProtectBlock");
     }
 
     /// <summary>
@@ -708,6 +716,57 @@ internal static class ExordiumMoveEffects
         killedOwner = true;
         return true;
     }
+
+    /// <summary>
+    /// GremlinShield.Protect：在**所有存活队友**（不含自己）里用这只怪物自己那条 RNG 流抽一只，
+    /// 给它 <c>ProtectBlock</c> 点格挡；一只存活队友都没有时格挡落在自己身上，且**一次都不抽**
+    /// （源码先 <c>teammates.Any()</c> 再进 <c>NextItem</c>）。
+    /// </summary>
+    /// <remarks>
+    /// 已复核：这场战斗里这条流只被小鬼盾兵自己的 <c>Protect</c> 推动（音效与动画走的是
+    /// <c>Rng.Chaotic</c>），所以实机实例上的当前状态就是准确起点，第一次取用时整份拷进预测状态。
+    /// 已抽次数写进自建标量成员，好让状态指纹看得见这条流的进度。
+    /// </remarks>
+    private static bool GremlinShieldProtect(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        killedOwner = false;
+        List<Creature> teammates = [];
+        foreach (Creature candidate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (candidate != move.Owner && simulator.State.GetCreature(candidate).IsAlive)
+                teammates.Add(candidate);
+        }
+        Creature target = move.Owner;
+        if (teammates.Count > 0)
+        {
+            MonsterRngPredictionState rng = MonsterRngSupport.State(
+                simulator,
+                move.Owner.Monster ?? throw new PredictionUnsupportedException("小鬼盾兵缺少怪物模型。"));
+            target = rng.NextItem(teammates)!;
+            combat.SetMonsterInt(move.Owner, GremlinShieldRngDrawsMember, rng.Draws);
+        }
+        simulator.GainBlock(
+            target,
+            combat.GetMonsterStaticInt(move.Owner, "ProtectBlock"),
+            ValueProp.Move);
+        return true;
+    }
+
+    /// <summary>
+    /// 适配层自己往怪物标量状态里塞的一项：小鬼盾兵那条私有 RNG 流已经抽过几次。
+    /// </summary>
+    /// <remarks>
+    /// 这个名字**不在** <see cref="ThirdPartyAdapterRegistry.RegisterMonsterStateMembers"/> 的名单里——
+    /// 实机怪物身上并没有这个成员，登记进名单会让根捕获去读一个不存在的字段。它只在预测过程中由
+    /// 适配层写入，一样会进状态指纹（指纹遍历的是整张标量状态表）。
+    /// </remarks>
+    internal const string GremlinShieldRngDrawsMember = "adapter_gremlin_shield_rng_draws";
 
     // === 工具 ===
 

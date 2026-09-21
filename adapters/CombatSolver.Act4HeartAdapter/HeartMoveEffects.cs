@@ -87,6 +87,8 @@ internal static class HeartMoveEffects
 
         // 盾兵球位分支要照抄实机上那条私有 RNG 流。
         A4hReflection.RequireLiveMonsterRngField();
+        // 私有 RNG 流的镜像实现是求解器本体的 MonsterRngSupport（与 AFTP 适配共用同一份）。
+        MonsterRngSupport.VerifyShape();
     }
 
     public static void RegisterAll()
@@ -287,11 +289,11 @@ internal static class HeartMoveEffects
         }
 
         float odds = A4hReflection.SpireShieldOrbsFocusDownOdds();
-        ShieldOrbRngPredictionState state = ShieldOrbState(simulator, move.Owner);
-        bool focus = state.RollNextFloat() < odds;
+        MonsterRngPredictionState state = ShieldOrbState(simulator, move.Owner);
+        bool focus = state.NextFloat() < odds;
         // 已抽次数写进怪物标量状态，好让状态指纹看得见这条流走了多远：只在这条流上不同的两条分支
         // 否则会被当成同一个状态去重掉一条。
-        combat.SetMonsterInt(move.Owner, HeartBranchResolvers.ShieldOrbRollsMember, state.Rolls);
+        combat.SetMonsterInt(move.Owner, HeartBranchResolvers.ShieldOrbRollsMember, state.Draws);
         if (focus)
         {
             Debuff<FocusPower>(simulator, combat, player, 1, move.Owner);
@@ -445,59 +447,10 @@ internal static class HeartMoveEffects
     /// <summary>
     /// 取盾兵那条私有 RNG 流的分支副本；还没有就地建一份，初值取自实机实例上的当前状态。
     /// </summary>
-    private static ShieldOrbRngPredictionState ShieldOrbState(
+    private static MonsterRngPredictionState ShieldOrbState(
         CombatPredictionSimulator simulator,
         Creature owner)
-        => simulator.StateStore.Get(
-            owner.Monster ?? throw new PredictionUnsupportedException("盾兵的球位分支缺少怪物模型。"),
-            static monster => new ShieldOrbRngPredictionState(monster));
-
-    /// <summary>
-    /// 盾兵私有 RNG 流（<c>MonsterModel._rng</c>）在预测里的分支副本。
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// 这条流由 <c>CombatState</c> 在战斗开始时按「run 种子 + 地图坐标 + CombatId」播种，一局里只有
-    /// Act4Heart 的盾兵会推动它（原版只拿它做外观），所以实机实例上的当前状态就是「本场战斗到目前为止
-    /// 抽过几次」的准确记录，预测期间也不会被别人改。第一次取用时按实机状态整份拷一份，
-    /// Fork 时再整份拷走，此后与实机彻底脱钩。
-    /// </para>
-    /// <para>
-    /// <see cref="Rolls"/> 会被写进怪物标量状态，于是只差这条流进度的两条分支不会再被去重成一条。
-    /// </para>
-    /// </remarks>
-    internal sealed class ShieldOrbRngPredictionState : IPredictionStateForkable
-    {
-        private readonly Rng _rng;
-
-        public ShieldOrbRngPredictionState(MonsterModel monster)
-        {
-            _rng = A4hReflection.LiveMonsterRng(monster) is Rng live
-                ? live.CaptureState().ToRng()
-                : throw new PredictionUnsupportedException(
-                    "盾兵的怪物实例上没有 RNG 流（MonsterModel._rng），无法复刻球位分支的抽样。");
-        }
-
-        private ShieldOrbRngPredictionState(Rng rng, int rolls)
-        {
-            _rng = rng;
-            Rolls = rolls;
-        }
-
-        /// <summary>已经抽过几次——对应源码里那条流被推动的次数。</summary>
-        public int Rolls { get; private set; }
-
-        /// <summary>源码里的 <c>Rng.NextFloat(1f)</c>：先推进，再取值。</summary>
-        public float RollNextFloat()
-        {
-            Rolls++;
-            return _rng.NextFloat(1f);
-        }
-
-        public object Fork(PredictionForkContext context)
-        {
-            _ = context;
-            return new ShieldOrbRngPredictionState(_rng.CaptureState().ToRng(), Rolls);
-        }
-    }
+        => MonsterRngSupport.State(
+            simulator,
+            owner.Monster ?? throw new PredictionUnsupportedException("盾兵的球位分支缺少怪物模型。"));
 }

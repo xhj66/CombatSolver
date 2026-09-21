@@ -1,5 +1,23 @@
 # CombatSolver 测试清单
 
+## 未发布：私有 RNG 流镜像收口与小鬼盾兵（2026-09-21）
+
+- 求解器本体与两个适配（AFTP、Heart）Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `MonsterRngSupport.State` / `VerifyShape` 与
+  `MonsterRngPredictionState`（`Draws` / `NextInt` / `NextFloat` / `NextItem` / `Fork`）在场；
+  AFTP 里 `GremlinShield` 分支解析器（含纯读取声明）、`PROTECT` 处理器
+  （`MonsterRngSupport.State` + `NextItem` + `adapter_gremlin_shield_rng_draws` + `ProtectBlock`
+  静态成员）在场；Heart 里已改为调用 `MonsterRngSupport`，本地那份 `ShieldOrbRngPredictionState`
+  不再存在于产物中（DLL 由 31,744 B 缩到 30,720 B）。三份产物均与工作区构建哈希逐字节相同。
+- 等价性依据：共享实现与原心脏本地实现逐段对应（首次取用时 `CaptureState().ToRng()` 整份拷贝、
+  每次抽样 `Draws++`、Fork 拷贝流与计数），只是把 `Rolls` 改名 `Draws`、`RollNextFloat` 改名
+  `NextFloat`；Heart 的调用点同步改名，行为不变。Heart 适配**没有**重跑行为测试（本轮未改搜索、
+  部署或状态语义，只换了实现来源）。
+- **未验证**：没有在游戏内打过小鬼帮战斗，所以「PROTECT 抽到与实机相同的队友」「抽次数进指纹后
+  不再错误去重」两条是**未实机验证**；私有 RNG 首次取用发生在 worker 里这一点与原心脏实现一致，
+  已知局限（起点可能偏后）记录在 §2.12。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
+
 ## 未发布：AFTP 史莱姆三件套与第三方怪物生成入口（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

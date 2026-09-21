@@ -189,7 +189,6 @@ PotionChoiceMirrors.Register<TYourPotion>(spec, apply);
 
 **一个真实例子。** 观者的形态药剂让玩家在平静和愤怒之间二选一。原版实现里比的是引用相等
 （`val == calmChoice`），但两张选项牌是两个不同的类型、各只有一张，所以按类型判完全等价。
-
 不登记的代价实测过：鬼祟珊瑚群那一场，求解器第 1 回合 `max_block=14 actual_block=3`、掉 11 血；
 手打是「爆发+ 进愤怒 → 停顿 3+9=12 甲 → 如水 → 药水选平静退出愤怒」，如水在回合结束因为平静
 再给 5 甲，17 甲挡掉 14 点，0 掉血。求解器不肯进愤怒的判断在它自己的世界观里是对的——进去了
@@ -500,6 +499,7 @@ BeforeDeathMirrors.RegisterIgnored(Type modelType);
 | `RegisterStableAttack(怪物类型名, 行动 Id)` | 该行动的攻击数值在意图构造时即已固定（`MultiAttackIntent(常量, 常量)` 一类），压掉预测器的「动态伤害」误报。**运行期会核对意图形状**，见下 |
 | `RegisterOwnerRemovingMove(怪物类型名, 行动 Id)` | 该行动把**施法者自己移出战斗**（逃跑／脱战，或先杀掉自己再留下生成物）。效果侧由登记方在处理器里调 `CreatureEscaped`（逃跑）或置 `killedOwner`（自杀），这一条负责让意图预测侧停止给它排后续回合 |
 | `MonsterSpawnSupport.SpawnByType(…, Type 怪物类型, …)` | 按**运行时类型**生成第三方怪物（召唤／分裂／复活）。见下 |
+| `MonsterRngSupport.State(simulator, monster)` | 怪物自己那条私有 RNG 流（`MonsterModel.Rng`）在预测里的分支副本，提供 `NextInt` / `NextFloat` / `NextItem` / `Draws`。见下 |
 | `RegisterTurnStartPower(Power 类型名, handler)` | 第三方 Power 在自己那一方回合开始时的状态重置 |
 | `AllowCombatSubscriber(类型全名/Type)` | 订阅者门禁放行，见 §1.1 |
 
@@ -592,6 +592,34 @@ Creature child = MonsterSpawnSupport.SpawnByType(
    在处理器里 `simulator.Kill(owner)`（`force` 与源码的 `CreatureCmd.Kill(c, false)` 对齐）后
    把 `killedOwner` 置真，死亡结算才会照常跑；同时用 `RegisterOwnerRemovingMove` 声明出去，
    预览才不会在它死后继续给它排行动。
+
+#### 私有 RNG 流：`MonsterRngSupport`
+
+每只怪物还有一条**自己**的 RNG 流（`MonsterModel.Rng`，由 `CombatState.CreateCreature` 按
+「run 种子 + 地图坐标 + CombatId」播种，与 `RunRng.MonsterAi` 是两条互不影响的流）。原版只拿它做外观，
+但你的 Mod 可能把它用在行动效果里（抽目标、抽几率）。求解器不模拟这条流，所以要在预测里照源码顺序复刻：
+
+```csharp
+MonsterRngPredictionState rng = MonsterRngSupport.State(simulator, move.Owner.Monster!);
+if (teammates.Count > 0)                       // ← 先按源码的短路判「有没有候选」
+    target = rng.NextItem(teammates)!;         //   空集合一次都不抽，与 Rng.NextItem 一致
+combat.SetMonsterInt(move.Owner, "adapter_your_mod_rng_draws", rng.Draws);
+```
+
+`State(...)` 在 `PredictionStateStore` 里按怪物实例建一份可 Fork 的副本：第一次取用时把**实机实例**
+上的流整份拷下来，Fork 时再整份拷走，此后与实机脱钩；`NextInt` / `NextFloat` / `NextItem` 都会把
+`Draws` 加一。三条纪律：
+
+1. **只在源码真的抽了的时候抽。** 「不抽」和「抽了但没走那条路」是两种不同的状态，短路顺序必须照抄
+   （`NextItem` 对空集合不抽，但源码自己还会先判一次 `Any()`，那一次判断决定的是**要不要走到** `NextItem`）。
+2. **`Draws` 写进一个自建的怪物标量成员**，名字**不要**放进 `RegisterMonsterStateMembers`——实机怪物
+   身上没有这个成员，登记进名单会让根捕获去读一个不存在的字段。指纹遍历的是整张标量状态表，
+   于是只差这条流进度的两条分支不会被去重成一条。
+3. **前提是这条流在战斗里只被这只怪物自己的行动推动。** 实机实例上的当前状态只有在那个前提下才是
+   准确的起点（音效、动画、台词走的是 `Rng.Chaotic`，不算数）。登记前逐行复核这一点，并在自检里调
+   `MonsterRngSupport.VerifyShape()` 钉住 `MonsterModel.Rng` 这个公开访问点。
+   **已知局限**：状态是首次用到时才从实机拷一份，不是根捕获时冻结的；同一只怪在同一回合真的行动过之后
+   再开始搜索，起点会偏后——这个局限与心脏盾兵球位的既有实现一致。
 
 #### 阶段缺口要显式记下来
 
