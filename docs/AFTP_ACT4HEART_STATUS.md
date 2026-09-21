@@ -817,6 +817,39 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 **未验证**：本轮没有用户，没有在游戏内跑过任何依赖这条口径的战斗；也没有最小差分夹具。
 ---
 
+### 2.32 第二幕首领：铜制自动机（`BronzeAutomaton`）与铜制球体（`BronzeOrb`）
+
+两只必须一起做（自动机的开场行动就是召唤球体，球体会自己行动），这一批两只一起清。
+
+**`BronzeAutomaton`**
+
+| 部位 | 源码 | 适配 |
+| --- | --- | --- |
+| 开场 | `_numTurns = 0` ＋ 3 层 `Artifact`（`AfterAddedToRoom`） | 不需要代码 |
+| `MOVE_BRANCH` | **一次 RNG 都不抽**：计数到 4 ⇒ 清零 ＋ `HYPER_BEAM`；上一步是 `HYPER_BEAM` ⇒ `BOOST`；否则计数 +1，上一步既不是 `BOOST` 也不是 `SPAWN_ORBS` ⇒ `BOOST`，再不然 `FLAIL` | `BeyondBranchResolvers.BronzeAutomaton`；`_numTurns` 进状态名单（写状态 ⇒ 不是纯读取） |
+| `SPAWN_ORBS` | 遍历布点表里 `orb` 开头的槽位各生成一只球体（**不做占用检查**），每只挂 `MinionPower` | `BronzeAutomatonSpawnOrbs`：`MonsterSpawnSupport.SpawnByType(…, BronzeOrb 类型, slot, null, minion: true)` |
+| `BOOST` | 自己 `BlockAmount` 格挡（`Move`）＋ `StrAmount` 力量 | `BronzeAutomatonBoost`；两个数值走静态数值成员（A8／A9 分支的运行期属性） |
+| `FLAIL` / `HYPER_BEAM` | `MultiAttackIntent(FlailDamage, 2)` / `SingleAttackIntent(BeamDamage)` | 已在常量表 |
+| `BeforeDeath` | 震屏 ＋ 杀掉存活队友 | 前者纯表现；后者是**原版规则**（主敌死亡时杀掉存活的 secondary 队友，核心已镜像，球体都带 `MinionPower`）⇒ 登记为忽略 |
+
+**`BronzeOrb`**
+
+| 部位 | 源码 | 适配 |
+| --- | --- | --- |
+| `MOVE_BRANCH` | 抽 `NextInt(100)`；未定住过牌且 `>= 25` ⇒ `STASIS` 并置 `_usedStasis`；`>= 70` 且最近没连出两次 `SUPPORT_BEAM` ⇒ 它；否则最近没连出两次 `BEAM` ⇒ `BEAM`，再不然 `SUPPORT_BEAM` | `BeyondBranchResolvers.BronzeOrb`；`_usedStasis` 进状态名单 |
+| `SUPPORT_BEAM` | 给队友里那只**活着的正牌自动机** 12 点格挡（`Move`） | `BronzeOrbSupportBeam`（按 `Monster.GetType().Name == "BronzeAutomaton"` 找） |
+| `STASIS` | 抽牌堆（空则弃牌堆）**先 `Sort()` 再 Fisher–Yates**（`StableShuffle`，用 `CombatCardGeneration`），按 **稀有 → 罕见 → 普通 → 任意** 挑一张，`RemoveFromCombat`，`StasisPower.Capture(牌, 玩家)`，把 Power 挂到自己身上 | `BronzeOrbStasis`：逐条照抄（含 `pool.Count - 1` 起的 FY 循环）；被偷的牌存进 `StasisStolenCardState`，并 `RecordStolenCard` |
+| `StasisPower.BeforeDeath` | 持有者死亡时把牌放回**手牌底部**（先复位 `HasBeenRemovedFromState`） | `StasisPowerBeforeDeath`：复位标记 ＋ `AddToPile(Hand, Bottom)` |
+
+**两处必须做对的地方**：① 被偷的牌是**对象引用**，`StasisStolenCardState.Fork` 用 `CreateClone()` 克隆一份，
+否则一条分支把牌还回手里会污染另一条分支；② 终局口径用上一批新增的 `RegisterStolenCardPower`，被偷的牌
+记进「未追回战利品」、球体死亡时核销（否则界面会一直显示丢了牌）。指纹槽用牌在玩家战斗牌表里的序号，
+保证「只差偷了哪张牌」的两条分支不会被去重。
+
+**未验证**：没有在游戏内打过「铜制自动机」遭遇，召唤槽位、`BOOST` 数值、STASIS 的挑牌与归还、
+两道分支的短路都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1149,12 +1182,12 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 一 | `Hexaghost` | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
 | 一 | `Guardian` | `SetMoveImmediate` 式强制改行动 + `ModeShiftPower`（形态切换）+ `SharpHidePower` + `BeforeDeath`（组 4／5）。**注**：本体的 `SimulatedCombatState.ForceStunnedMove` / `ForceMonsterMove` 已经存在且适配层可直呼（publicizer），所以「强制改行动」不需要新登记点，缺的是这几个 Power 的镜像与它自己的分支 |
 | 一 | `Lagavulin` | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
-| 二 | `BronzeAutomaton` | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
-| 二 | `BronzeOrb` | `STASIS` 要**偷牌**：洗牌抽/弃牌堆（`StableShuffle`＝先 `Sort` 再 Fisher–Yates，已反编译确认）、按稀有度挑（`(int)Rarity` 4／3／2 依次，已确认 `CardRarity` 枚举值）、`StasisPower` 存牌、死亡时归还。**终局口径的入口已就绪**（§2.31）；剩下的是「被偷的牌是对象引用，必须放进能随 Fork 重映射的预测状态」这一处设计 |
+| 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
+| 二 | ~~`BronzeOrb`~~（已适配 §2.32） |
 | 二 | `GremlinLeader` | 「随从随首领死亡而逃跑」（小鬼 `AfterAddedToRoom` 订阅的 C# 事件）——要么在首领镜像里让存活小鬼 `CreatureEscaped`，要么补核心入口；其余（分支／`RALLY` 召唤／`ENCOURAGE`／`STAB`）都是现成能力 |
 | 二 | `Collector` | 自身复活（`REVIVE`）+ 随从生成 + `_turnsTaken`／`_ultUsed`／`_initialSpawn` + `BeforeDeath` |
 | 二 | `ShelledParasite` | 分支（带 `min` 重载）+ `FELL`／`DOUBLE_STRIKE`／`LIFE_SUCK`／`STUNNED` + `BeforeDeath`（破甲后眩晕）；强制改行动如上不需要新入口 |
-| 二 | `BronzeAutomaton` |
+| 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
 | 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
 | 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |

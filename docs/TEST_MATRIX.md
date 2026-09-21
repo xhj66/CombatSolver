@@ -1,5 +1,21 @@
 # CombatSolver 测试清单
 
+## 未发布：第二幕首领铜制自动机（`BronzeAutomaton`）与铜制球体（`BronzeOrb`）（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：两条分支解析器（自动机**无 RNG** 的四路判断；球体的 `NextInt(100)` 与三处
+  判定）、四个行动效果（`SPAWN_ORBS` 按 `orb` 前缀槽位 `SpawnByType(minion: true)`、
+  `BOOST` 格挡＋力量、`SUPPORT_BEAM` 给正牌自动机 12 格挡、`STASIS` 的「排序 ＋ Fisher–Yates ＋
+  稀有→罕见→普通→任意」挑牌与 `RecordStolenCard`）、`StasisPowerBeforeDeath`（复位
+  `HasBeenRemovedFromState` 后 `AddToPile(Hand, Bottom)`）、`RegisterStolenCardPower("StasisPower", …)`、
+  指纹槽登记、`StasisStolenCardState`（Fork 里 `CreateClone()` 克隆被偷的牌）与三处状态成员
+  （`_numTurns`、`_usedStasis`、自动机的 `BlockAmount`/`StrAmount` 静态数值）全部在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 86,016 B；核心本轮未改）。
+- 两处关键设计：① 被偷的牌是对象引用，Fork 必须克隆（否则一条分支还牌会污染另一条）；
+  ② 终局口径接上一批新的 `RegisterStolenCardPower`，保证「未追回战利品」与死亡核销与实机一致。
+- **未验证**：没有在游戏内打过「铜制自动机」遭遇，召唤槽位、BOOST 数值、STASIS 的挑牌与归还、
+  两条分支的短路都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：本体新增「第三方偷牌 Power」登记（2026-09-21）
 
 - 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；已部署产物反编译核对：

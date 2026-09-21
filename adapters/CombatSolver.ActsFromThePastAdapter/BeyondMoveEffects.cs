@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Attack;
@@ -37,7 +38,15 @@ internal static class BeyondMoveEffects
         "Donu",
         "Deca",
         "SnakePlant",
+        "BronzeAutomaton",
+        "BronzeOrb",
     ];
+
+    /// <summary>AFTP 自己的 <c>StasisPower</c>（铜制球体偷牌用）。</summary>
+    private static Type _stasisPowerType = null!;
+
+    /// <summary>AFTP 的铜制球体类型（自动机召唤用）。</summary>
+    private static Type _bronzeOrbType = null!;
 
     /// <summary>蛇草 SPORES 给的虚弱／破甲层数（AFTP <c>DebuffAmount</c>）。</summary>
     private static int _snakePlantDebuffAmount;
@@ -117,6 +126,9 @@ internal static class BeyondMoveEffects
             ?? throw new InvalidOperationException(
                 "ActsFromThePast.MalleablePower._pendingBlock 不存在，往昔之章版本可能已变动。");
         _snakePlantDebuffAmount = AfpReflection.RequireConst("SnakePlant", "DebuffAmount", 2);
+        _stasisPowerType = AfpReflection.RequireType("ActsFromThePast.StasisPower");
+        _ = AfpReflection.RequireOverride("StasisPower", "BeforeDeath", 1);
+        _bronzeOrbType = AfpReflection.RequireType("ActsFromThePast.BronzeOrb");
     }
 
     public static void RegisterAll()
@@ -238,6 +250,227 @@ internal static class BeyondMoveEffects
         // 开场的 3 层 MalleablePower 发生在 AfterAddedToRoom（已在根里，镜像见上）；
         // CHOMP 是常量构造的三段攻击；这里只补 SPORES。
         ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("SnakePlant", "SPORES", SnakePlantSpores);
+
+        // --- 铜制自动机（BronzeAutomaton，第二幕首领）与它召唤的铜制球体（BronzeOrb） ---
+        // 自动机：初始行动就是 SPAWN_ORBS；开场 _numTurns = 0 与 3 层 Artifact 都在 AfterAddedToRoom
+        // （已在根里）。分支每回合改计数，所以它进状态名单；BOOST 的两个数值是 A8/A9 的运行期属性。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("BronzeAutomaton", "_numTurns");
+        ThirdPartyAdapterRegistry.RegisterStaticIntMembers("BronzeAutomaton", "BlockAmount", "StrAmount");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "BronzeAutomaton",
+            "SPAWN_ORBS",
+            BronzeAutomatonSpawnOrbs);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("BronzeAutomaton", "BOOST", BronzeAutomatonBoost);
+        // BeforeDeath：震屏 + 杀掉存活队友。后半是**原版规则**（主敌死亡时杀掉存活的 secondary 队友，
+        // 核心已镜像，球体都带 MinionPower），所以按「已复核无剩余玩法影响」登记为忽略。
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.BronzeAutomaton"));
+
+        // 球体：分支读写的 _usedStasis 进状态名单；SUPPORT_BEAM 要给正牌自动机加格挡；
+        // STASIS 偷牌（被偷的牌存在预测状态里，球体死亡时由 StasisPower 的镜像归还）。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers("BronzeOrb", "_usedStasis");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("BronzeOrb", "SUPPORT_BEAM", BronzeOrbSupportBeam);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("BronzeOrb", "STASIS", BronzeOrbStasis);
+        BeforeDeathMirrors.Register(_stasisPowerType, StasisPowerBeforeDeath);
+        // 终局口径：被偷的牌要算进「未追回战利品」，球体死亡时核销（原版只认 SwipePower／Thief 那类）。
+        ThirdPartyAdapterRegistry.RegisterStolenCardPower(
+            "StasisPower",
+            static (simulator, power) => simulator.StateStore
+                .Get(power, static () => new StasisStolenCardState())
+                .StolenCard is not null);
+        // 被偷的牌要进指纹：只在「偷了哪张牌」上不同的两条分支不能被去重成一条。
+        PowerHiddenStateMirrors.Register(
+            _stasisPowerType,
+            "stolenCard",
+            static (simulator, power) => simulator.StateStore
+                .Peek(power, static () => new StasisStolenCardState())
+                .CardIdentity);
+    }
+
+    /// <summary>
+    /// BronzeAutomaton.SpawnOrbs：按遭遇布点表里**以 `orb` 开头**的槽位各生成一只 <c>BronzeOrb</c>
+    /// （源码不做占用检查，这里照抄），每只都挂 1 层 <c>MinionPower</c>（由 <c>minion: true</c> 这条路做掉）。
+    /// </summary>
+    private static bool BronzeAutomatonSpawnOrbs(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        foreach (string slot in combat.EncounterSlots)
+        {
+            if (!slot.StartsWith("orb", StringComparison.Ordinal))
+                continue;
+            MonsterSpawnSupport.SpawnByType(
+                simulator,
+                combat,
+                move.Owner,
+                _bronzeOrbType,
+                slot,
+                maxHpOverride: null,
+                minion: true);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// BronzeAutomaton.Boost：给自己 <c>BlockAmount</c> 点格挡（<c>Move</c>）与 <c>StrAmount</c> 点力量。
+    /// </summary>
+    private static bool BronzeAutomatonBoost(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.GainBlock(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "BlockAmount"),
+            ValueProp.Move);
+        combat.Apply<StrengthPower>(
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "StrAmount"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>BronzeOrb.SupportBeam：给**存活的正牌自动机**（队友里 `Monster is BronzeAutomaton`）12 点格挡。</summary>
+    private static bool BronzeOrbSupportBeam(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (teammate.Monster?.GetType().Name != "BronzeAutomaton"
+                || !simulator.State.GetCreature(teammate).IsAlive)
+            {
+                continue;
+            }
+            simulator.GainBlock(teammate, 12, ValueProp.Move);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// BronzeOrb.Stasis：把玩家抽牌堆（空则弃牌堆）按源码那套「先排序再 Fisher–Yates」稳定洗牌，
+    /// 依次按 稀有 → 罕见 → 普通 → 任意 挑一张，移出战斗、记一笔「被偷的牌」，再把 <c>StasisPower</c>
+    /// 挂到自己身上；被偷的牌存进预测状态，等球体死亡时由 <see cref="StasisPowerBeforeDeath"/> 归还。
+    /// </summary>
+    private static bool BronzeOrbStasis(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (player.Player is not { } targetPlayer || !simulator.State.GetCreature(player).IsAlive)
+            return true;
+        SimPlayerCombatState playerState = simulator.State.GetPlayerCombatState(targetPlayer);
+        List<PredictedCard> draw = [.. playerState.DrawPile.Cards];
+        List<PredictedCard> discard = [.. playerState.DiscardPile.Cards];
+        if (draw.Count == 0 && discard.Count == 0)
+            return true;
+        List<PredictedCard> pool = draw.Count > 0 ? draw : discard;
+        // 源码 `ListExtensions.StableShuffle`：先 Sort()（卡自己的 IComparable）再 Fisher–Yates。
+        pool.Sort(static (left, right) => left.Preview.CompareTo(right.Preview));
+        Rng rng = simulator.Rng.CombatCardGeneration;
+        for (int index = pool.Count - 1; index > 0; index--)
+        {
+            int swapIndex = rng.NextInt(index + 1);
+            (pool[index], pool[swapIndex]) = (pool[swapIndex], pool[index]);
+        }
+        PredictedCard? stolen =
+            pool.FirstOrDefault(static card => card.Preview.Rarity == CardRarity.Rare)
+            ?? pool.FirstOrDefault(static card => card.Preview.Rarity == CardRarity.Uncommon)
+            ?? pool.FirstOrDefault(static card => card.Preview.Rarity == CardRarity.Common)
+            ?? pool.FirstOrDefault();
+        if (stolen is null)
+            return true;
+        List<PredictedCard> allCards = [.. playerState.AllCards];
+        int identity = 0;
+        for (int index = 0; index < allCards.Count; index++)
+        {
+            if (ReferenceEquals(allCards[index], stolen))
+            {
+                identity = index + 1;
+                break;
+            }
+        }
+        simulator.RemoveFromCombat(stolen);
+        combat.RecordStolenCard(simulator);
+        combat.ApplyPower(_stasisPowerType, move.Owner, 1, move.Owner);
+        PowerModel? stasis = combat.EffectivePowers().FirstOrDefault(power =>
+            power.GetType() == _stasisPowerType && ReferenceEquals(power.Owner, move.Owner));
+        if (stasis is null)
+        {
+            throw new PredictionUnsupportedException(
+                "STASIS 挂上的 StasisPower 没有出现在预测状态里。");
+        }
+        StasisStolenCardState state = simulator.StateStore
+            .Get(stasis, static () => new StasisStolenCardState());
+        state.StolenCard = stolen;
+        state.CardIdentity = identity;
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>StasisPower.BeforeDeath</c>：持有者（球体）死亡时把被偷的牌放回**手牌**（源码
+    /// <c>CardPileCmd.Add(StolenCard, PileType 2, CardPilePosition 1, null, false)</c>＝手牌底部）。
+    /// </summary>
+    /// <remarks>
+    /// 归还前要先把 <c>HasBeenRemovedFromState</c> 复位（源码也是先写这个标记），否则预测器会拒绝入堆。
+    /// </remarks>
+    private static void StasisPowerBeforeDeath(AbstractModel model, BeforeDeathMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (!ReferenceEquals(context.Creature, power.Owner))
+            return;
+        StasisStolenCardState state = context.Simulator.StateStore
+            .Get(power, static () => new StasisStolenCardState());
+        if (state.StolenCard is not { } card)
+            return;
+        state.StolenCard = null;
+        card.MutablePreview.HasBeenRemovedFromState = false;
+        context.Simulator.AddToPile(card, PileType.Hand, CardPilePosition.Bottom);
+    }
+
+    /// <summary>
+    /// 被 <c>StasisPower</c> 扣住的那张牌在预测里的分支副本。
+    /// </summary>
+    /// <remarks>
+    /// 牌是**对象引用**：Fork 时必须克隆一份，否则一条分支把牌还回手里会污染另一条分支。
+    /// <c>CardIdentity</c> 只是给指纹用的稳定标识（有 <c>CombatId</c> 就用它）。
+    /// </remarks>
+    internal sealed class StasisStolenCardState : IPredictionStateForkable
+    {
+        public PredictedCard? StolenCard { get; set; }
+
+        public int CardIdentity { get; set; }
+
+        public object Fork(PredictionForkContext context)
+            => new StasisStolenCardState
+            {
+                StolenCard = StolenCard?.CreateClone(),
+                CardIdentity = CardIdentity,
+            };
     }
 
     /// <summary>SnakePlant.Spores：给每个活着的目标 <c>DebuffAmount</c> 层破甲与虚弱（施加者是蛇草）。</summary>

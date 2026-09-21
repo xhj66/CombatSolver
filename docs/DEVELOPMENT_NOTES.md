@@ -23,6 +23,18 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第二幕首领铜制自动机（`BronzeAutomaton`）与铜制球体（`BronzeOrb`）（2026-09-21）
+
+- 两只一起做（自动机开场就召唤球体）：自动机的分支**一次 RNG 都不抽**（计数到 4 ⇒ HYPER_BEAM，
+  上一步 HYPER_BEAM ⇒ BOOST，否则计数 +1 后 BOOST／FLAIL），要登记 `_numTurns`、`SPAWN_ORBS`
+  （按 `orb` 前缀槽位生成球体，`minion: true` 负责挂 MinionPower）、`BOOST`（两个运行期属性走静态数值成员）；
+  `BeforeDeath` 的「杀存活队友」是原版规则（核心已镜像）⇒ 登记为忽略。
+- 球体：分支读写的 `_usedStasis` 进状态名单；`SUPPORT_BEAM` 给存活的正牌自动机 12 格挡；`STASIS` 逐条照抄
+  「抽牌堆（空则弃牌堆）先排序再 Fisher–Yates，按稀有→罕见→普通→任意挑一张，移出战斗、记一笔、
+  挂 StasisPower」；`StasisPower.BeforeDeath` 镜像把牌放回手牌底部（先复位 HasBeenRemovedFromState）。
+- 两处必须做对：被偷的牌是**对象引用**，`StasisStolenCardState.Fork` 用 `CreateClone()` 克隆（否则一条分支
+  还牌会污染另一条）；终局口径接 `RegisterStolenCardPower`，指纹槽存牌在玩家战斗牌表里的序号。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.32。
 ## 未发布：本体新增「第三方偷牌 Power」登记（2026-09-21）
 
 - 为铜制球体（`BronzeOrb`）的 `STASIS`（偷走玩家最好的一张牌、球体死亡时归还）铺路：核心的终局

@@ -36,12 +36,18 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Reptomancer", "MOVE_BRANCH", Reptomancer);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Exploder", "MOVE_BRANCH", Exploder);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("SnakePlant", "MOVE_BRANCH", SnakePlant);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "BronzeAutomaton",
+            "MOVE_BRANCH",
+            BronzeAutomaton);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("BronzeOrb", "MOVE_BRANCH", BronzeOrb);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
-        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder", "SnakePlant"];
+        ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
+         "SnakePlant", "BronzeAutomaton", "BronzeOrb"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -151,6 +157,63 @@ internal static class BeyondBranchResolvers
 
     private static bool LastMoveBefore(IReadOnlyList<string> log, string moveId)
         => log.Count > 1 && string.Equals(log[^2], moveId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// BronzeAutomaton.SelectNextMove：**一次 RNG 都不抽**——计数到 4 就清零并 HYPER_BEAM；上一步是
+    /// HYPER_BEAM 就 BOOST；否则计数 +1，上一步既不是 BOOST 也不是 SPAWN_ORBS 就 BOOST，再不然 FLAIL。
+    /// </summary>
+    /// <remarks>它写自己的计数（开场 0 由 `AfterAddedToRoom` 写入，已在根里），**不在**纯读取名单里。</remarks>
+    private static string BronzeAutomaton(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = rng;
+        _ = simulator;
+        int numTurns = combat.GetMonsterInt(monster.Creature, "_numTurns");
+        if (numTurns == 4)
+        {
+            combat.SetMonsterInt(monster.Creature, "_numTurns", 0);
+            return "HYPER_BEAM";
+        }
+        if (LastMove(log, "HYPER_BEAM"))
+            return "BOOST";
+        combat.SetMonsterInt(monster.Creature, "_numTurns", numTurns + 1);
+        if (!LastMove(log, "BOOST") && !LastMove(log, "SPAWN_ORBS"))
+            return "BOOST";
+        return "FLAIL";
+    }
+
+    /// <summary>
+    /// BronzeOrb.SelectNextMove：抽一次 <c>NextInt(100)</c>；还没定住过牌且 `&gt;= 25` ⇒ STASIS（并把
+    /// <c>_usedStasis</c> 置位）；`&gt;= 70` 且最近没连出两次 SUPPORT_BEAM ⇒ SUPPORT_BEAM；否则最近没连出
+    /// 两次 BEAM ⇒ BEAM、再不然 SUPPORT_BEAM。
+    /// </summary>
+    /// <remarks>它写 <c>_usedStasis</c>，**不在**纯读取名单里；抽样顺序与那两处短路照抄。</remarks>
+    private static string BronzeOrb(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = simulator;
+        int num = rng.NextInt(100);
+        if (!combat.GetMonsterBool(monster.Creature, "_usedStasis") && num >= 25)
+        {
+            combat.SetMonsterBool(monster.Creature, "_usedStasis", true);
+            return "STASIS";
+        }
+        if (num >= 70 && !LastTwoMoves(log, "SUPPORT_BEAM"))
+            return "SUPPORT_BEAM";
+        return LastTwoMoves(log, "BEAM") ? "SUPPORT_BEAM" : "BEAM";
+    }
 
     /// <summary>
     /// Maw.SelectNextMove：先把回合计数 +1；还没咆哮过就 **不抽 RNG** 直接 ROAR；否则抽一次
