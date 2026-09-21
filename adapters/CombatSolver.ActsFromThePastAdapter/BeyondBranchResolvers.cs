@@ -52,13 +52,15 @@ internal static class BeyondBranchResolvers
             GremlinLeader);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FIRST_MOVE_BRANCH", ByrdFirstMove);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Byrd", "FLYING_BRANCH", ByrdFlying);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Nemesis", "MOVE_BRANCH", Nemesis);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
 
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
-         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader", "Byrd"];
+         "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
+         "Byrd", "Nemesis"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -443,6 +445,73 @@ internal static class BeyondBranchResolvers
         if (!LastMove(log, "CAW"))
             return "CAW";
         return rng.NextFloat(1f) < 0.2857f ? "SWOOP" : "PECK";
+    }
+
+    /// <summary>
+    /// Nemesis.SelectNextMove：**先把镰刀冷却 -1**；`_firstMove` 时置假并抽 <c>NextInt(100)</c>
+    /// （`&lt; 50` ⇒ TRI_ATTACK 否则 TRI_BURN）；否则抽 `NextInt(100)`：`&lt; 30` 时上一步不是 SCYTHE 且冷却
+    /// ≤ 0 ⇒ SCYTHE（并把冷却置 2），再抽 `NextFloat(1)`（`&lt; 0.5` ⇒ 最近没连出两次 TRI_ATTACK 就 TRI_ATTACK、
+    /// 否则 TRI_BURN；不然上一步不是 TRI_BURN 就 TRI_BURN、否则 TRI_ATTACK）；`&lt; 65` 时最近没连出两次
+    /// TRI_ATTACK ⇒ TRI_ATTACK，再抽 `NextFloat(1)`（`&lt; 0.5` ⇒ 冷却 ≤ 0 就 SCYTHE 否则 TRI_BURN），否则
+    /// TRI_BURN；其余上一步不是 TRI_BURN ⇒ TRI_BURN，再抽 `NextFloat(1)`（`&lt; 0.5` 且冷却 ≤ 0）⇒ SCYTHE，
+    /// 否则 TRI_ATTACK。
+    /// </summary>
+    /// <remarks>
+    /// 冷却递减、`_firstMove` 与三处「先判后抽」的顺序都逐条照抄；它写自己的两个标量，
+    /// **不在**纯读取名单里。
+    /// </remarks>
+    private static string Nemesis(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = simulator;
+        int cooldown = combat.GetMonsterInt(monster.Creature, "_scytheCooldown") - 1;
+        combat.SetMonsterInt(monster.Creature, "_scytheCooldown", cooldown);
+        if (combat.GetMonsterBool(monster.Creature, "_firstMove"))
+        {
+            combat.SetMonsterBool(monster.Creature, "_firstMove", false);
+            return rng.NextInt(100) < 50 ? "TRI_ATTACK" : "TRI_BURN";
+        }
+        int num = rng.NextInt(100);
+        if (num < 30)
+        {
+            if (!LastMove(log, "SCYTHE") && cooldown <= 0)
+            {
+                combat.SetMonsterInt(monster.Creature, "_scytheCooldown", 2);
+                return "SCYTHE";
+            }
+            if (rng.NextFloat(1f) < 0.5f)
+                return LastTwoMoves(log, "TRI_ATTACK") ? "TRI_BURN" : "TRI_ATTACK";
+            return LastMove(log, "TRI_BURN") ? "TRI_ATTACK" : "TRI_BURN";
+        }
+        if (num < 65)
+        {
+            if (!LastTwoMoves(log, "TRI_ATTACK"))
+                return "TRI_ATTACK";
+            if (rng.NextFloat(1f) < 0.5f)
+            {
+                if (cooldown <= 0)
+                {
+                    combat.SetMonsterInt(monster.Creature, "_scytheCooldown", 2);
+                    return "SCYTHE";
+                }
+                return "TRI_BURN";
+            }
+            return "TRI_BURN";
+        }
+        if (!LastMove(log, "TRI_BURN"))
+            return "TRI_BURN";
+        if (rng.NextFloat(1f) < 0.5f && cooldown <= 0)
+        {
+            combat.SetMonsterInt(monster.Creature, "_scytheCooldown", 2);
+            return "SCYTHE";
+        }
+        return "TRI_ATTACK";
     }
 
     /// <summary>

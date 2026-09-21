@@ -930,6 +930,26 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 回合开始的层数回滚都**未实机验证**；也没有最小差分夹具。
 ---
 
+### 2.37 第三幕：复仇女神（`Nemesis`）与本体新增「非 Power 模型的常规回合末」入口
+
+它**自己**（怪物模型，不是 Power）重写了常规（非 Late）的 `AfterSideTurnEnd`，在敌人回合末于
+「有无实体化」之间切换——而上一批那个回合末入口派发时遍历的是 `EffectivePowers()`，怪物落不进去，
+所以先补一条按**模型类型名**派发的入口：`RegisterSideTurnEndModel`（派发在敌人侧回合末链路的末端、
+晚期 `AfterSideTurnEndLate` 之前；玩家侧模型尚未开放，见手册 §6）。
+
+| 部位 | 源码（`ActsFromThePast.Nemesis`） | 适配 |
+| --- | --- | --- |
+| 开场 | `AfterAddedToRoom` 只有 `Died` 事件与火焰粒子；`AfterPowerAmountChanged` 只改透明度 | 纯表现，**没有适配代码** |
+| `MOVE_BRANCH`（初始状态） | **先**把镰刀冷却 -1；`_firstMove` 时置假并抽 `NextInt(100)`（`< 50` ⇒ TRI_ATTACK 否则 TRI_BURN）；否则抽 `NextInt(100)`：`< 30` 时（上一步不是 SCYTHE 且冷却 ≤ 0）⇒ SCYTHE（冷却置 2），再抽 `NextFloat(1)` 走两路；`< 65` 时最近没连出两次 TRI_ATTACK ⇒ TRI_ATTACK，再抽 `NextFloat(1)`（`< 0.5` ⇒ 冷却 ≤ 0 就 SCYTHE 否则 TRI_BURN），否则 TRI_BURN；其余上一步不是 TRI_BURN ⇒ TRI_BURN，再抽 `NextFloat(1)`（`< 0.5` 且冷却 ≤ 0）⇒ SCYTHE，否则 TRI_ATTACK | `BeyondBranchResolvers.Nemesis`（冷却递减、`_firstMove`、三处「先判后抽」的顺序照抄）；三个标量进状态名单 |
+| `TRI_ATTACK`／`SCYTHE` | `MultiAttackIntent(FireDamage, 3)`／`SingleAttackIntent(45)` | 纯攻击，已在常量表 |
+| `TRI_BURN` | `StatusIntent(5)` ＋ 回调往弃牌堆底部塞 5 张 Burn（`BurnAmount`） | `NemesisTriBurn`（`RequireConst` 钉死 5） |
+| `AfterSideTurnEnd`（常规、非 Late） | 自己那一方回合末翻转 `_shouldApplyIntangible`：翻到真给 1 层原版 `IntangiblePower`，翻到假且身上还有就移除 | `RegisterSideTurnEndModel("Nemesis", …)`：`combat.Apply<IntangiblePower>` / `SetAmount<IntangiblePower>(…, 0)`（原版 Power，核心已镜像） |
+| `BeforeDeath` | 一句死亡音效 | `BeforeDeathMirrors.RegisterIgnored` |
+
+**未验证**：没有在游戏内打过「复仇女神」遭遇，分支的冷却与三处抽样、TRI_BURN 的 Burn、无实体化的切换
+都**未实机验证**；也没有最小差分夹具。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -1270,7 +1290,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） |
 | 二 | ~~`Byrd`~~（已适配 §2.36） | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
-| 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
+| 三 | ~~`Nemesis`~~（已适配 §2.37） | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
 | 三 | `WrithingMass` | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
 | 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |
 | 三 | `AwakenedOne` | 两阶段 + 重生（`REBIRTH`）+ `ShouldDisappearFromDoom` + `BeforeDeath` |

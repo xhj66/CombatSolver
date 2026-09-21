@@ -565,6 +565,20 @@ internal static class CorePowerSupport
         TriggerTransientSideTurnEndPowers(simulator, combat, CombatSide.Enemy, enemies);
         combat.RestoreTemporaryStrength(enemies);
         TickDurations(combat);
+        // 第三方**怪物**重写的常规（非 Late）AfterSideTurnEnd：按类型名派发，未登记的类型什么都不做。
+        foreach (Creature enemy in enemies)
+        {
+            if (enemy.Monster is not { } monster
+                || !ThirdPartyAdapterRegistry.TryGetSideTurnEndModel(
+                    monster.GetType().Name,
+                    out ThirdPartyAdapterRegistry.SideTurnEndModelHandler? modelTurnEnd))
+            {
+                continue;
+            }
+            modelTurnEnd(simulator, combat, monster, CombatSide.Enemy, enemies);
+            if (simulator.HasPendingChoice)
+                return false;
+        }
         return HookMirrors.AfterSideTurnEndLate(simulator, CombatSide.Enemy, enemies);
     }
 

@@ -1,5 +1,20 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕复仇女神（`Nemesis`）与本体「非 Power 模型回合末」入口（2026-09-21）
+
+- 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，
+  无编译器警告）；已部署产物反编译核对：核心里 `SideTurnEndModelHandler` 委托、`SideTurnEndModelTable`、
+  `RegisterSideTurnEndModel` / `TryGetSideTurnEndModel`，以及 `CorePowerSupport` 敌人侧回合末链路末端
+  （`AfterSideTurnEndLate` 之前）的派发点；适配里 `BeyondBranchResolvers.Nemesis`（冷却 -1、`_firstMove`、
+  三处「先判后抽」）、三个状态成员、`NemesisTriBurn`（`RequireConst("Nemesis","BurnAmount",5)`、
+  5 张 Burn 进弃牌堆底部）、`RegisterSideTurnEndModel("Nemesis", …)`（翻转 `_shouldApplyIntangible` 后
+  施加／移除原版 `IntangiblePower`）与 `BeforeDeathMirrors.RegisterIgnored` 全部在场；
+  两份部署产物与工作区构建哈希逐字节相同（核心 6,296,064 B、AFTP 95,744 B）。
+- 能力边界：这条新入口**只在敌人侧**回合末派发（覆盖战斗中的第三方怪物模型）；玩家侧的非 Power 模型
+  仍未开放，已写进 docs/THIRD_PARTY_ADAPTERS.md §6。
+- **未验证**：没有在游戏内打过「复仇女神」遭遇，分支的冷却与三处抽样、TRI_BURN 的 Burn、无实体化的切换
+  都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：鸟（`Byrd`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

@@ -118,6 +118,7 @@ internal static class ThirdPartyAdapterRegistry
     private static readonly Dictionary<string, string[]> ScalarStateMemberTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, TurnStartPowerHandler> TurnStartPowerTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, SideTurnEndPowerHandler> SideTurnEndPowerTable = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, SideTurnEndModelHandler> SideTurnEndModelTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, SideTurnStartPowerHandler> SideTurnStartPowerTable = new(StringComparer.Ordinal);
     private static readonly Dictionary<(string Type, string Id), MonsterMoveAttackResultHandler> MoveAttackResultTable = [];
     private static readonly HashSet<string> AllowedCombatSubscriberTypes = new(StringComparer.Ordinal);
@@ -205,6 +206,22 @@ internal static class ThirdPartyAdapterRegistry
         => SideTurnEndPowerTable.TryGetValue(powerTypeName, out handler!);
 
     /// <summary>
+    /// 第三方**非 Power 模型**（怪物、卡牌、遗物）重写的常规（非 Late）<c>AfterSideTurnEnd</c>。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RegisterSideTurnEndPower"/> 只覆盖 Power（派发时遍历的是 <c>EffectivePowers()</c>）；
+    /// 像往昔之章的复仇女神那样由**怪物自己**重写这个阶段、在敌人回合末切换无实体化的，需要这一条。
+    /// 目前只在**敌人侧**回合末派发（覆盖战斗中的怪物）；玩家侧的模型还没开放，见
+    /// docs/THIRD_PARTY_ADAPTERS.md §6。
+    /// </remarks>
+    public delegate void SideTurnEndModelHandler(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        AbstractModel model,
+        CombatSide side,
+        IReadOnlyList<Creature> participants);
+
+    /// <summary>
     /// 登记第三方 Power 自己的 <c>BeforeSideTurnStart</c> 预测实现（每一方回合开始时按类型派发一次）。
     /// </summary>
     /// <remarks>
@@ -254,6 +271,21 @@ internal static class ThirdPartyAdapterRegistry
         string powerTypeName,
         out StolenCardPowerHandler handler)
         => StolenCardPowerTable.TryGetValue(powerTypeName, out handler!);
+
+    /// <summary>
+    /// 登记第三方**非 Power 模型**（怪物这类）的常规（非 Late）<c>AfterSideTurnEnd</c>：敌人回合末按类型名派发。
+    /// </summary>
+    /// <remarks>
+    /// 纯新增：没登记的类型与加这个入口之前完全一样。派发点在敌人侧回合末的既有链路里、
+    /// 晚期 <c>AfterSideTurnEndLate</c> 之前（与源码的「常规在前、晚期在后」一致）。
+    /// </remarks>
+    public static void RegisterSideTurnEndModel(string modelTypeName, SideTurnEndModelHandler handler)
+        => SideTurnEndModelTable[modelTypeName] = handler;
+
+    public static bool TryGetSideTurnEndModel(
+        string modelTypeName,
+        out SideTurnEndModelHandler handler)
+        => SideTurnEndModelTable.TryGetValue(modelTypeName, out handler!);
 
     /// <summary>
     /// 登记第三方怪物某个行动的「攻击结算之后」实现（拿得到这次行动的全部伤害结果）。

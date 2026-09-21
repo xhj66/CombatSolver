@@ -44,7 +44,11 @@ internal static class BeyondMoveEffects
         "Collector",
         "GremlinLeader",
         "Byrd",
+        "Nemesis",
     ];
+
+    /// <summary>Nemesis 的 TRI_BURN 塞的 Burn 张数（AFTP <c>BurnAmount</c>）。</summary>
+    private static int _nemesisBurnAmount;
 
     /// <summary>AFTP 自己的 <c>FlightPower</c>（鸟的飞行）。</summary>
     private static Type _flightPowerType = null!;
@@ -166,6 +170,7 @@ internal static class BeyondMoveEffects
         _ = AfpReflection.RequireOverride("FlightPower", "AfterDamageReceived", 6);
         _ = AfpReflection.RequireOverride("FlightPower", "AfterRemoved", 1);
         _byrdCawStrength = AfpReflection.RequireConst("Byrd", "CawStrength", 1);
+        _nemesisBurnAmount = AfpReflection.RequireConst("Nemesis", "BurnAmount", 5);
     }
 
     public static void RegisterAll()
@@ -381,6 +386,66 @@ internal static class BeyondMoveEffects
         ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("FlightPower", FlightPowerTurnStart);
         // BeforeDeath 只有一句死亡音效 ⇒ 登记为忽略（名字带 Death，不登记会让整场给不出战损）。
         BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Byrd"));
+
+        // --- 复仇女神（Nemesis，第三幕） ---
+        // 开场只有 Died 事件与火焰粒子（纯表现）；AfterPowerAmountChanged 也只改透明度。
+        ThirdPartyAdapterRegistry.RegisterMonsterStateMembers(
+            "Nemesis",
+            "_firstMove",
+            "_scytheCooldown",
+            "_shouldApplyIntangible");
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Nemesis", "TRI_BURN", NemesisTriBurn);
+        // 它**自己**（怪物模型，不是 Power）重写了常规（非 Late）AfterSideTurnEnd：敌人回合末在
+        // 「有无实体化」之间切换。这条走本轮新增的「非 Power 模型」入口。
+        ThirdPartyAdapterRegistry.RegisterSideTurnEndModel("Nemesis", NemesisSideTurnEnd);
+        BeforeDeathMirrors.RegisterIgnored(AfpReflection.RequireType("ActsFromThePast.Nemesis"));
+    }
+
+    /// <summary>Nemesis.TriBurn：攻击意图之外就是往弃牌堆底部塞 <c>BurnAmount</c> 张 Burn。</summary>
+    private static bool NemesisTriBurn(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = combat;
+        _ = move;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.AddToCombat<Burn>(
+            player,
+            PileType.Discard,
+            _nemesisBurnAmount,
+            null,
+            CardPilePosition.Bottom);
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>Nemesis.AfterSideTurnEnd</c>（常规、非 Late）：自己那一方回合末翻转
+    /// <c>_shouldApplyIntangible</c>——翻到真就给 1 层原版 <c>IntangiblePower</c>，翻到假且身上还有就把它移除。
+    /// </summary>
+    private static void NemesisSideTurnEnd(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        AbstractModel model,
+        CombatSide side,
+        IReadOnlyList<Creature> participants)
+    {
+        _ = side;
+        MonsterModel nemesis = (MonsterModel)model;
+        bool applies = !combat.GetMonsterBool(nemesis.Creature, "_shouldApplyIntangible");
+        combat.SetMonsterBool(nemesis.Creature, "_shouldApplyIntangible", applies);
+        if (applies)
+        {
+            if (simulator.State.GetCreature(nemesis.Creature).IsAlive)
+                combat.Apply<IntangiblePower>(nemesis.Creature, 1, nemesis.Creature);
+            return;
+        }
+        if (participants.Contains(nemesis.Creature) && combat.GetAmount<IntangiblePower>(nemesis.Creature) > 0)
+            combat.SetAmount<IntangiblePower>(nemesis.Creature, 0);
     }
 
     /// <summary>Byrd.Caw：给自己 <c>CawStrength</c> 点力量（台词与音效不在适配范围）。</summary>

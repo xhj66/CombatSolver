@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第三幕复仇女神（`Nemesis`）与本体「非 Power 模型回合末」入口（2026-09-21）
+
+- 复仇女神自己（怪物模型）重写了常规（非 Late）`AfterSideTurnEnd`，在敌人回合末切换无实体化；
+  上一批那个入口派发时只遍历 `EffectivePowers()`，怪物落不进去，所以新增
+  `RegisterSideTurnEndModel(模型类型名, handler)`——派发在敌人侧回合末链路末端、晚期 `AfterSideTurnEndLate`
+  之前（与源码「常规在前、晚期在后」一致）。玩家侧模型尚未开放，手册 §6 已注明。
+- 本体适配：分支（镰刀冷却 -1／`_firstMove`／三处「先判后抽」的抽样）、三个状态成员、`TRI_BURN` 塞 5 张 Burn
+  （`RequireConst`）、回合末翻转 `_shouldApplyIntangible` 后施加／移除原版 `IntangiblePower`；
+  开场只有 `Died` 事件与火焰粒子、`AfterPowerAmountChanged` 只改透明度 ⇒ 都没有适配代码；
+  `BeforeDeath` 只有音效 ⇒ 登记为忽略。逐条对照见
+  [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.37。
 ## 未发布：鸟（`Byrd`）（2026-09-21）
 
 - 第二幕的 `Byrd`（反编译区间与 §4.2／§4.4 的分组都在第二幕；类起点 10785）做完之后，**第二幕 20 只全部适配**。两条分支都只读 rng 与行动历史、声明为纯读取：
