@@ -1,5 +1,31 @@
 # CombatSolver 测试清单
 
+## 未发布：死亡后不再接受 Power 施加（问题包 24b8f299）（2026-09-21）
+
+- 求解器本体 Release 构建通过（0 error；仅离线还原的 NU1900 警告）。
+- 新增严格差分夹具 `LAMP-DEBUFF-ON-KILL`（不安油灯 + 中和打在会被这一击打死的目标上；
+  `-EncounterId CULTISTS_NORMAL -CharacterId IRONCLAD`，两个敌人才不会一击杀就结束战斗）：
+  - **改动前**（临时把 `CanReceivePredictedPowers` 还原成只看死亡阶段）**Failed**，错误逐字复现问题包：
+    `Lamp kill mismatch: field=relicCounters expected={UNSETTLING_LAMP/1/0} actual={UNSETTLING_LAMP/0/0}`，
+    artifact `34A8A6F9FF2322FC02A88D6135F410BB0F0E184563E56FECE4EB708C7FBC63DF`；
+  - **改动后 Passed**，完成检查 `LampDebuffOnKilledTarget:SkipsDebuffOnRemovedTarget:KeepsCharge:FullContinuationState`
+    （预测与实机逐字比较完整 `ContinuationStamp`）。
+- 哨兵（同一构建）：`LAMP-INDIRECT-POISON` Passed（`ENVENOM_POWER` 与 `CONCOCT_POWER` 两条，
+  runId `9dc98634016c47dc8c87b006d38a8c00`）、`LAMP-INDIRECT-TEMPORARY-STRENGTH` Passed
+  （`MONARCHS_GAZE_POWER`）、`CRAB-RAGE-DEATH-TIMING` Passed（`KAISER_CRAB_BOSS`，首次因harness
+  `Process … did not expose its executable path` 中止，重试通过——该报错是启动器取进程路径的偶发失败，
+  不是求解器失败）。
+- 结构门禁 `pwsh -NoProfile -File tools/verify-refactor-boundaries.ps1` 输出
+  `REFACTOR_BOUNDARIES_OK search_files=205`。
+- 已部署本体：`mods\CombatSolver\CombatSolver.dll` SHA256
+  `D6ECBD7F64A218FBDC196C315224A2B4AA743F57829E25ABE2926548F7604741`，与构建产物哈希一致。
+- 无头实例：`.local/headless-instances/lampdiff`（本机交互档是 `steam\<steamId>` 布局，
+  harness 需要 `default\1\settings.save`，因此在实例内预置了一份拷贝；未改动用户档案）。
+  复用实例的那次以 `-StopInstance` 收尾，其余每次 `-CleanupInstanceOnExit` 并确认整个实例目录已删除。
+- **未验证**：没有在可见 Steam 会话里复核这场战斗的实际复用行为；`CanReceivePredictedPowers` 的改动
+  只覆盖「死亡即离场」的个体，实机里 `IsPerformingMove` 的怪物在死亡当时不离场这一例外未建模
+  （求解器不模拟怪物行动，注释已记明）。
+
 ## 未发布：往昔之章适配登记名命名空间修复与离线门禁（2026-09-21）
 
 - `CombatSolver-AFTP` Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）：

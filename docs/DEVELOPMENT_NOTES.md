@@ -1,5 +1,21 @@
 # CombatSolver 开发笔记与未来构想
 
+## 未发布：死亡后不再接受 Power 施加（问题包 24b8f299 的遗物计数偏差）（2026-09-21）
+
+- 问题包 `24b8f299…`（`ACTSFROMTHEPAST-SMALL_SLIMES_WEAK`，0.43.2）里求解器算出了 4 回合零战损的路线，
+  但在第 2 回合的续用核对上报 `state_mismatch`：
+  `field=relicCounters expected={UNSETTLING_LAMP/1/0} actual={UNSETTLING_LAMP/0/0}`。
+- 根因是 Power 可施加判据漏了「个体是否仍在战斗里」这一半。实机 `CreatureCmd.Kill` 在击杀当时就
+  `combatState.RemoveCreature`（`CombatState = null`），中和随后那条 `PowerCmd.Apply<WeakPower>`
+  在 `!target.CanReceivePowers` 上直接返回，所以被打死的尖刺史莱姆既没吃到虚弱、也没有点亮不安油灯；
+  而求解器把死亡效果推迟到 `ApplyEnemyDeathPowers`，`_deathPhases` 那时才写，
+  于是预测里照常施加了这层虚弱，并顺手把油灯记成已触发。
+- `SimulatedCombatState.CanReceivePredictedPowers` 现在同时看 `CombatPredictionState` 的移除标记
+  （新增只读入口 `IsAttachedToCombat`）：已离场个体不再接受 Power，死亡效果清扫期间的窗口不受影响。
+- 新增严格差分夹具 `LAMP-DEBUFF-ON-KILL`（不安油灯 + 中和打死目标）：改动前失败并复现同一条
+  `relicCounters` 差异，改动后通过；`LAMP-INDIRECT-POISON`、`LAMP-INDIRECT-TEMPORARY-STRENGTH`、
+  `CRAB-RAGE-DEATH-TIMING` 三个哨兵同时通过。证据与运行参数见 [测试矩阵](TEST_MATRIX.md)。
+
 ## 未发布：往昔之章适配的登记名命名空间修复与离线门禁（2026-09-21）
 
 - 问题包 `f9350de8…`（`ACTSFROMTHEPAST-SMALL_SLIMES_WEAK`，0.43.2）里适配启动自检失败、一个条目都没登记，
