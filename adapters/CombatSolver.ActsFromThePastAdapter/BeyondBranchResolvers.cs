@@ -57,6 +57,10 @@ internal static class BeyondBranchResolvers
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("WrithingMass", "MOVE_BRANCH", WrithingMass);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("TimeEater", "MOVE_BRANCH", TimeEater);
         ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver("Hexaghost", "MOVE_BRANCH", Hexaghost);
+        ThirdPartyAdapterRegistry.RegisterMonsterBranchResolver(
+            "Guardian",
+            "OFFENSIVE_BRANCH",
+            Guardian);
         foreach ((string monster, string branch) in PureSelectors)
             ThirdPartyAdapterRegistry.RegisterPureBranchSelector(monster, branch);
     }
@@ -64,7 +68,7 @@ internal static class BeyondBranchResolvers
     internal static readonly string[] RegisteredMonsterTypes =
         ["Repulsor", "Spiker", "OrbWalker", "SpireGrowth", "Maw", "GiantHead", "Reptomancer", "Exploder",
          "SnakePlant", "BronzeAutomaton", "BronzeOrb", "ShelledParasite", "Collector", "GremlinLeader",
-         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost"];
+         "Byrd", "Nemesis", "Lagavulin", "WrithingMass", "TimeEater", "Hexaghost", "Guardian"];
 
     /// <summary>
     /// 逐行复核为「纯读取」的 (怪物, 分支)：只读传入的 <c>rng</c>、实机 StateLog 与自己的只读标量，
@@ -83,6 +87,7 @@ internal static class BeyondBranchResolvers
         ("Byrd", "FIRST_MOVE_BRANCH"),
         ("Byrd", "FLYING_BRANCH"),
         ("Lagavulin", "MAIN_BRANCH"),
+        ("Guardian", "OFFENSIVE_BRANCH"),
     ];
 
     /// <summary>
@@ -694,6 +699,40 @@ internal static class BeyondBranchResolvers
             5 => "SEAR",
             6 => "INFERNO",
             _ => "SEAR",
+        };
+    }
+
+    /// <summary>
+    /// Guardian.SelectNextOffensiveMove（分支 Id 是 <c>OFFENSIVE_BRANCH</c>）：**一次 RNG 都不抽**——
+    /// `_isOpen` 为假 ⇒ CLOSE_UP；否则按**上一步的行动**查表（CHARGE_UP→FIERCE_BASH、FIERCE_BASH→VENT_STEAM、
+    /// VENT_STEAM→WHIRLWIND、TWIN_SLAM→WHIRLWIND、WHIRLWIND→CHARGE_UP，其它／开局 ⇒ CHARGE_UP）。
+    /// </summary>
+    /// <remarks>
+    /// 只读 `_isOpen` 与行动历史（行动日志里只会出现 MoveState 的 Id，分支状态不进日志），不写状态，
+    /// **已声明为纯读取**。CLOSE_UP／ROLL_ATTACK／TWIN_SLAM 那三段的顺序是状态机里写死的，不走这个分支。
+    /// </remarks>
+    private static string Guardian(
+        MonsterModel monster,
+        string branchId,
+        IReadOnlyList<string> log,
+        Rng rng,
+        SimulatedCombatState combat,
+        CombatPredictionSimulator simulator)
+    {
+        _ = branchId;
+        _ = rng;
+        _ = simulator;
+        if (!combat.GetMonsterBool(monster.Creature, "_isOpen"))
+            return "CLOSE_UP";
+        string lastMove = log.Count > 0 ? log[^1] : string.Empty;
+        return lastMove switch
+        {
+            "CHARGE_UP" => "FIERCE_BASH",
+            "FIERCE_BASH" => "VENT_STEAM",
+            "VENT_STEAM" => "WHIRLWIND",
+            "TWIN_SLAM" => "WHIRLWIND",
+            "WHIRLWIND" => "CHARGE_UP",
+            _ => "CHARGE_UP",
         };
     }
 

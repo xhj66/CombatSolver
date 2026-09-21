@@ -1077,6 +1077,46 @@ Burn 升级与「升级后再塞的是升级版」都**未实机验证**；也�
 
 **未验证**：`Guardian` 本体还没接，所以本批没有用户；架起 `ModeShiftPower`／`SharpHidePower` 的
 可观察行为、`LoseBlock` 的语义都**未实机验证**，也没有最小差分夹具。
+
+---
+
+### 2.44 第一幕精英：守护者（`Guardian`）本体——分支 ＋ 七个行动 ＋ 死亡补刀
+
+接上 §2.43 的材料。它的状态机是 `CHARGE_UP`（初始）→ `FIERCE_BASH` → `VENT_STEAM` → `WHIRLWIND` →
+`CHARGE_UP`…，这五个行动的后继都是分支状态 `OFFENSIVE_BRANCH`；`CLOSE_UP` → `ROLL_ATTACK` → `TWIN_SLAM`
+是形态切换后**写死在状态机里**的固定链（不经过分支状态）。
+
+| 行动／钩子 | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `OFFENSIVE_BRANCH` | `SelectNextOffensiveMove`：`!_isOpen` ⇒ `CLOSE_UP`；否则按**行动历史里最后一个 `MoveState`** 查表（CHARGE_UP→FIERCE_BASH、FIERCE_BASH→VENT_STEAM、VENT_STEAM→WHIRLWIND、TWIN_SLAM→WHIRLWIND、WHIRLWIND→CHARGE_UP，其余／开局 ⇒ CHARGE_UP）；不抽 RNG、不写状态 | `BeyondBranchResolvers.Guardian`（`RegisterMonsterBranchResolver`），并进 `PureSelectors`：根捕获期会真跑一遍选择函数，纯读取声明才让它安全地走这一步 |
+| `CHARGE_UP` | 自己 9 格挡（`Move`），收尾 `CheckPendingModeShift` | `GuardianChargeUp`（9 走 `RequireConst("Guardian","ChargeUpBlock",9)`） |
+| `FIERCE_BASH` / `WHIRLWIND` | `_isExecutingMove = true` → 攻击（32／36；5×4）→ `_isExecutingMove = false` → 收尾检查 | `RegisterMonsterMoveBeforeAttack` 置位 ＋ 行动效果收尾（`GuardianBeginMove` / `GuardianEndMove`） |
+| `VENT_STEAM` | 每个**活着**的目标 2 层虚弱 ＋ 2 层易伤，收尾检查 | `GuardianVentSteam`（2 走 `RequireConst("Guardian","VentDebuffAmount",2)`） |
+| `CLOSE_UP` | 给自己 `SharpHideThorns` 层 `SharpHidePower` | `GuardianCloseUp`（`SharpHideThorns` 走静态数值成员：A9+ 4／否则 3） |
+| `ROLL_ATTACK` | 9／10 点攻击，没有别的效果 | 纯攻击，按意图结算，**不需要登记** |
+| `TWIN_SLAM` | `_isExecutingMove = true` → `TransitionToOffensiveMode()` → 8×2 → 摘掉 `SharpHidePower` → `_isExecutingMove = false` → 收尾检查 | `GuardianBeginTwinSlam`（置位 ＋ 转攻击形态，**顺序照抄**——反了会让「攻击过程中挨到的反伤」落到错误的形态上）＋ `GuardianEndTwinSlam`（摘 Power ＋ 收尾） |
+| `BeforeDeath` | 死者是自己且 `SharpHidePower.AttackInProgress`、攻击来源还活着 ⇒ 对来源造成 `Amount` 点 `Unpowered` 伤害 | `BeforeDeathMirrors.Register(Guardian, …)` ＋ `GuardianBeforeDeath`；`AttackInProgress`／`AttackSource` 读 §2.43 那个随 Fork 复制的预测状态（只 `Peek`，不在死亡路径里插入空状态） |
+
+两个形态切换函数是共用的（`GuardianTransitionToDefensiveMode` / `GuardianTransitionToOffensiveMode`），
+`setMove` 的两条路径必须分开：`CheckPendingModeShift`（行动收尾补切）用 `setMove: false`，
+而 `ModeShiftPower.AfterDamageReceived` 里源码调的是**带默认值**的 `TransitionToDefensiveMode()`，
+即 `setMove: true`。
+
+**更正 §2.43**：那批的镜像在这条立即切换路径上写成了 `setMove: false`，等于玩家在自己回合把阈值打空时
+守护者**照样按原意图出手**，与源码不符。本批改为 `setMove: true`（`ForceMonsterMove(owner, "CLOSE_UP")`），
+并核对过 `ModeShiftDamageReceived` 的整条判据（`_isOpen` / `_closeUpTriggered` / 已死短路、
+`Amount - UnblockedDamage` 扣到 0、执行中则 `_pendingModeShift`）。
+
+**记录在案的一处表达差别**：源码 `SetMoveImmediate(_closeUpState, true)` 的第二个参数是「本次一定执行」，
+核心的 `ForceMonsterMove` 没有这个标志。守护者这条链是线性的（`CLOSE_UP` → `ROLL_ATTACK` → `TWIN_SLAM`
+中间没有分支状态），而 `_isOpen` 直到 `TWIN_SLAM` 才复位，所以两者等价。
+
+**顺带修掉两处适配层里的既有告警**（都不改语义）：① 删掉 `BeyondMoveEffects._spireGrowthConstrictAmount`
+这个从不使用的字段；② `ReactivePower` 的镜像原先直接解引用 `monster.MoveStateMachine`（CS8602 可能为空），
+现在取不到状态机时抛 `PredictionUnsupportedException`，而不是让空引用在搜索里炸成未知异常。
+
+**未验证**：没有在游戏内打过「守护者」遭遇，形态切换（阈值扣减、立即／延迟切换、CLOSE_UP→ROLL_ATTACK→
+TWIN_SLAM 三次形态往返）、尖刺外壳的两处伤害（出攻击牌与死亡补刀）都**未实机验证**；也没有最小差分夹具。
 ---
 
 ## 3. 心脏（Act4Heart）适配：已落地
@@ -1401,7 +1441,10 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 `Romeo`／`SphericGuardian`／`Snecko`（§2.15）、`Chosen`／`Champ`（§2.16）、`BookOfStabbing`（§2.17）、
 `TorchHead`（§2.18，零登记）；
 第三幕 `Repulsor`／`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、
-`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）。
+`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）；
+其后 §2.27–§2.44 的批次见各自小节（`Donu`／`Deca`／`SnakePlant`／`BronzeAutomaton`／`BronzeOrb`／
+`ShelledParasite`／`Collector`／`GremlinLeader`／`Byrd`／`Nemesis`／`Transient`／`Lagavulin`／`WrithingMass`／
+`TimeEater`／`Hexaghost`／`Guardian`）。第一幕至此只剩 `SlaverRed`。
 
 **未适配与确切缺口**（每条都已反编译核对过，动手时不需要重新侦察）：
 
@@ -1409,7 +1452,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | --- | --- | --- |
 | 一 | `SlaverRed` | 手牌**病症与可打出性**镜像（`EntangledPower` + `EntangledOriginal` 病症，组 7）——需要本体的「卡牌可打出性」入口 |
 | 一 | ~~`Hexaghost`~~（已适配 §2.42；§4.4 原先记的「需要 AfterSideTurnEnd」是误判） | `_orbActiveCount` 状态 + 分支；`DIVIDER` 动态伤害（动态攻击值已就绪）；`INFERNO` 要**升级玩家牌堆里所有 Burn 再塞 3 张**（预测期卡牌操作，组 8）；它的 `AfterSideTurnEnd`（非 Late）现在已有入口 |
-| 一 | `Guardian` | `SetMoveImmediate` 式强制改行动 + `ModeShiftPower`（形态切换）+ `SharpHidePower` + `BeforeDeath`（组 4／5）。**注**：本体的 `SimulatedCombatState.ForceStunnedMove` / `ForceMonsterMove` 已经存在且适配层可直呼（publicizer），所以「强制改行动」不需要新登记点，缺的是这几个 Power 的镜像与它自己的分支 |
+| 一 | ~~`Guardian`~~（已适配 §2.43 材料 ＋ §2.44 本体） | 分支 `OFFENSIVE_BRANCH`（纯读取）＋ 七个行动 ＋ `ModeShiftPower` 的立即／延迟切换 ＋ `SharpHidePower` ＋ `BeforeDeath` 补刀。`SetMoveImmediate` 式强制改行动用核心既有的 `ForceMonsterMove`（publicizer 直呼），不需要新登记点 |
 | 一 | ~~`Lagavulin`~~（已适配 §2.39） | `AfterSideTurnEnd`（非 Late，入口已就绪）＋ 唤醒时的 `CreatureCmd.Stun`（同上，`ForceStunnedMove` 可直呼）＋ 两个静态 bool 成员 |
 | 二 | ~~`BronzeAutomaton`~~（已适配 §2.32） | 无本体缺口；`MOVE_BRANCH`（写 `_numTurns`）+ `SPAWN_ORBS`（按 `orb` 前缀槽位生成，`minion: true`）+ `BOOST`；`BeforeDeath` 的「杀存活队友」是**原版规则**（核心已镜像），登记为忽略 |
 | 二 | ~~`BronzeOrb`~~（已适配 §2.32） |

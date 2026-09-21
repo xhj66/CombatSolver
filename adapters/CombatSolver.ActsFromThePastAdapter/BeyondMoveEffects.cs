@@ -62,6 +62,12 @@ internal static class BeyondMoveEffects
     private static Type _modeShiftType = null!;
     private static Type _sharpHideType = null!;
 
+    /// <summary>守护者本体的四个数值常量（AFTP <c>Guardian</c> 的 <c>ChargeUpBlock</c> 等）。</summary>
+    private static int _guardianChargeUpBlock;
+    private static int _guardianDefensiveBlock;
+    private static int _guardianThresholdIncrease;
+    private static int _guardianVentDebuff;
+
     /// <summary>AFTP 自己的 <c>TimeWarpPower</c>（时间吞噬者的「时间扭曲」）与 <c>DrawReductionPower</c>。</summary>
     private static Type _timeWarpPowerType = null!;
     private static Type _drawReductionType = null!;
@@ -145,9 +151,6 @@ internal static class BeyondMoveEffects
 
     /// <summary>AFTP 自己的 <c>ConstrictedPower</c>（与原版 <c>ConstrictPower</c> 是两个类型）。</summary>
     private static Type _constrictedPowerType = null!;
-
-    /// <summary>SpireGrowth 每次缠绕的层数（AFTP <c>ConstrictAmount</c>，A9+ 12／否则 10）。</summary>
-    private static int _spireGrowthConstrictAmount;
 
     /// <summary>GiantHead 每次 COUNT 递减后给 IT_IS_TIME 加的伤害（AFTP <c>IncrementDmg</c>）。</summary>
     private static int _giantHeadIncrementDmg;
@@ -236,6 +239,13 @@ internal static class BeyondMoveEffects
         _sharpHideType = AfpReflection.RequireType("ActsFromThePast.SharpHidePower");
         _ = AfpReflection.RequireOverride("SharpHidePower", "BeforeCardPlayed", 1);
         _ = AfpReflection.RequireOverride("SharpHidePower", "AfterCardPlayed", 2);
+        // 守护者本体：四个数值走常量核对（形态切换的两个数值也钉在这里），行动回调的顺序见本文件
+        // 对应处理器；BeforeDeath 是名字带 Death 的重写，不登记镜像会让整场给不出战损（§2.13）。
+        _guardianChargeUpBlock = AfpReflection.RequireConst("Guardian", "ChargeUpBlock", 9);
+        _guardianDefensiveBlock = AfpReflection.RequireConst("Guardian", "DefensiveBlock", 20);
+        _guardianThresholdIncrease = AfpReflection.RequireConst("Guardian", "DmgThresholdIncrease", 10);
+        _guardianVentDebuff = AfpReflection.RequireConst("Guardian", "VentDebuffAmount", 2);
+        _ = AfpReflection.RequireOverride("Guardian", "BeforeDeath", 1);
         AfpReflection.VerifyAscensionHelper();
     }
 
@@ -570,6 +580,209 @@ internal static class BeyondMoveEffects
         AfterDamageReceivedMirrors.Register(_modeShiftType, ModeShiftDamageReceived);
         BeforeCardPlayedMirrors.Register(_sharpHideType, SharpHideBeforeCardPlayed);
         AfterCardPlayedMirrors.Register(_sharpHideType, SharpHideAfterCardPlayed);
+        // 守护者本体：分支 OFFENSIVE_BRANCH 之外，七个行动的效果与「延迟形态切换」的检查点。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Guardian", "CHARGE_UP", GuardianChargeUp);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack(
+            "Guardian",
+            "FIERCE_BASH",
+            GuardianBeginMove);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "Guardian",
+            "FIERCE_BASH",
+            GuardianEndMove);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Guardian", "VENT_STEAM", GuardianVentSteam);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack(
+            "Guardian",
+            "WHIRLWIND",
+            GuardianBeginMove);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "Guardian",
+            "WHIRLWIND",
+            GuardianEndMove);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Guardian", "CLOSE_UP", GuardianCloseUp);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveBeforeAttack(
+            "Guardian",
+            "TWIN_SLAM",
+            GuardianBeginTwinSlam);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Guardian", "TWIN_SLAM", GuardianEndTwinSlam);
+        // BeforeDeath：死亡时如果正好在一次攻击过程中，按尖刺外壳的层数给攻击者补一刀（Unpowered）。
+        BeforeDeathMirrors.Register(AfpReflection.RequireType("ActsFromThePast.Guardian"), GuardianBeforeDeath);
+    }
+
+    /// <summary>Guardian.CheckPendingModeShift：行动收尾时把「执行中攒下的」形态切换补上。</summary>
+    private static void GuardianCheckPendingModeShift(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        Creature guardian)
+    {
+        if (!combat.GetMonsterBool(guardian, "_pendingModeShift"))
+            return;
+        combat.SetMonsterBool(guardian, "_pendingModeShift", false);
+        combat.SetMonsterBool(guardian, "_closeUpTriggered", true);
+        GuardianTransitionToDefensiveMode(simulator, combat, guardian, setMove: false);
+    }
+
+    /// <summary>Guardian.ChargeUp：自己 9 格挡（`Move`），收尾检查延迟的形态切换。</summary>
+    private static bool GuardianChargeUp(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.GainBlock(move.Owner, _guardianChargeUpBlock, ValueProp.Move);
+        GuardianCheckPendingModeShift(simulator, combat, move.Owner);
+        return true;
+    }
+
+    /// <summary>Guardian.FierceBash／Whirlwind 的**攻击前**部分：把 `_isExecutingMove` 置真（阈值归零时改为延迟切换）。</summary>
+    private static void GuardianBeginMove(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player)
+    {
+        _ = simulator;
+        _ = player;
+        combat.SetMonsterBool(move.Owner, "_isExecutingMove", true);
+    }
+
+    /// <summary>攻击收尾：清掉 `_isExecutingMove` 并检查延迟的形态切换。</summary>
+    private static bool GuardianEndMove(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.SetMonsterBool(move.Owner, "_isExecutingMove", false);
+        GuardianCheckPendingModeShift(simulator, combat, move.Owner);
+        return true;
+    }
+
+    /// <summary>Guardian.VentSteam：给每个活着的目标 2 层虚弱与 2 层易伤，收尾检查延迟的形态切换。</summary>
+    private static bool GuardianVentSteam(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = plannedChoices;
+        killedOwner = false;
+        if (simulator.State.GetCreature(player).IsAlive)
+        {
+            combat.Apply<WeakPower>(player, _guardianVentDebuff, move.Owner);
+            combat.Apply<VulnerablePower>(player, _guardianVentDebuff, move.Owner);
+        }
+        GuardianCheckPendingModeShift(simulator, combat, move.Owner);
+        return true;
+    }
+
+    /// <summary>Guardian.CloseUp：给自己挂 <c>SharpHideThorns</c> 层尖刺外壳（后续 ROLL_ATTACK→TWIN_SLAM 是固定链）。</summary>
+    private static bool GuardianCloseUp(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = simulator;
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        combat.ApplyPower(
+            _sharpHideType,
+            move.Owner,
+            combat.GetMonsterStaticInt(move.Owner, "SharpHideThorns"),
+            move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// Guardian.TwinSlam 的**攻击前**部分：置 `_isExecutingMove`，再转回攻击形态（源码就是在攻击前调
+    /// <c>TransitionToOffensiveMode</c>——顺序反了会让「攻击过程中挨反伤」落到错误的形态上）。
+    /// </summary>
+    private static void GuardianBeginTwinSlam(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player)
+    {
+        _ = player;
+        combat.SetMonsterBool(move.Owner, "_isExecutingMove", true);
+        GuardianTransitionToOffensiveMode(simulator, combat, move.Owner);
+    }
+
+    /// <summary>Guardian.TwinSlam 的攻击后部分：摘掉尖刺外壳，收尾并检查延迟切换。</summary>
+    private static bool GuardianEndTwinSlam(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        foreach (PowerModel power in combat.EffectivePowers())
+        {
+            if (ReferenceEquals(power.Owner, move.Owner)
+                && power.GetType() == _sharpHideType
+                && power.Amount > 0)
+            {
+                combat.SetPowerAmount(power, 0);
+            }
+        }
+        combat.SetMonsterBool(move.Owner, "_isExecutingMove", false);
+        GuardianCheckPendingModeShift(simulator, combat, move.Owner);
+        return true;
+    }
+
+    /// <summary>
+    /// Guardian.BeforeDeath：死亡瞬间若尖刺外壳记录着「正在进行的攻击」且来源还活着，就按外壳层数给那个来源
+    /// 补一刀 <c>Unpowered</c> 伤害（源码在 <c>BeforeDeath</c> 里直接查那次攻击的记录）。
+    /// </summary>
+    private static void GuardianBeforeDeath(AbstractModel model, BeforeDeathMirrorContext context)
+    {
+        MonsterModel guardian = (MonsterModel)model;
+        if (!ReferenceEquals(context.Creature, guardian.Creature))
+            return;
+        if (context.CombatState is not SimulatedCombatState combat)
+            throw new PredictionUnsupportedException("守护者的死亡补刀缺少可写的预测状态。");
+        foreach (PowerModel power in combat.EffectivePowers())
+        {
+            if (!ReferenceEquals(power.Owner, guardian.Creature)
+                || power.GetType() != _sharpHideType
+                || power.Amount <= 0)
+            {
+                continue;
+            }
+            SharpHideAttackState state = context.StateStore
+                .Peek(power, static () => new SharpHideAttackState());
+            if (!state.AttackInProgress
+                || state.AttackSource is not { } source
+                || !context.Simulator.State.GetCreature(source).IsAlive)
+            {
+                continue;
+            }
+            using (context.Simulator.PushDamageSource(
+                CombatDamageSource.For(CombatDamageSourceKind.Power, "SharpHidePower")))
+            {
+                context.Simulator.Damage(source, power.Amount, ValueProp.Unpowered, null);
+            }
+        }
     }
 
     /// <summary>
@@ -603,7 +816,9 @@ internal static class BeyondMoveEffects
             combat.SetMonsterBool(power.Owner, "_pendingModeShift", true);
             return;
         }
-        GuardianTransitionToDefensiveMode(context.Simulator, combat, power.Owner, setMove: false);
+        // 源码这里调的是 TransitionToDefensiveMode()（setMove 默认 true）：玩家回合内把阈值打空会让
+        // 守护者**当场**把下一个行动改成 CLOSE_UP，意图随之改变；延迟那条路径才用 setMove: false。
+        GuardianTransitionToDefensiveMode(context.Simulator, combat, power.Owner, setMove: true);
     }
 
     /// <summary>
@@ -626,8 +841,8 @@ internal static class BeyondMoveEffects
         combat.SetMonsterInt(
             guardian,
             "_nextThreshold",
-            combat.GetMonsterInt(guardian, "_nextThreshold") + 10);
-        simulator.GainBlock(guardian, 20, ValueProp.Move);
+            combat.GetMonsterInt(guardian, "_nextThreshold") + _guardianThresholdIncrease);
+        simulator.GainBlock(guardian, _guardianDefensiveBlock, ValueProp.Move);
         combat.SetMonsterBool(guardian, "_isOpen", false);
         if (setMove)
             combat.ForceMonsterMove(guardian, "CLOSE_UP");
@@ -1122,9 +1337,13 @@ internal static class BeyondMoveEffects
         {
             throw new PredictionUnsupportedException("反应缺少可写的预测状态。");
         }
+        if (monster.MoveStateMachine is not { } machine)
+        {
+            throw new PredictionUnsupportedException("反应需要怪物身上已捕获的行动状态机。");
+        }
         string currentMoveId = combat.CurrentMonsterMove(power.Owner).Move.Id;
         List<MoveState> candidates = [];
-        foreach (MonsterState state in monster.MoveStateMachine.States.Values)
+        foreach (MonsterState state in machine.States.Values)
         {
             if (state is not MoveState move
                 || string.Equals(move.Id, currentMoveId, StringComparison.Ordinal)

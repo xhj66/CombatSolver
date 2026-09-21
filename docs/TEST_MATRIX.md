@@ -1,5 +1,29 @@
 # CombatSolver 测试清单
 
+## 未发布：第一幕精英守护者（`Guardian`）本体（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，**无编译器警告**）；
+  已部署产物反编译核对：`BeyondBranchResolvers.Guardian`（`!_isOpen` ⇒ CLOSE_UP，否则按行动历史查表，
+  无 RNG）与 `PureSelectors` 里的 `("Guardian","OFFENSIVE_BRANCH")`、`GuardianChargeUp`（9 格挡）、
+  `GuardianBeginMove`／`GuardianEndMove`（FIERCE_BASH、WHIRLWIND 的攻击前置位与收尾）、
+  `GuardianVentSteam`（2 虚弱 + 2 易伤）、`GuardianCloseUp`（`SharpHideThorns` 层尖刺外壳）、
+  `GuardianBeginTwinSlam`（置位 + `GuardianTransitionToOffensiveMode`）／`GuardianEndTwinSlam`（摘外壳 + 收尾）、
+  `GuardianCheckPendingModeShift`、`GuardianBeforeDeath`（`Peek` 攻击状态 ⇒ 对来源 `Amount` 点 Unpowered）、
+  `ModeShiftDamageReceived` 里立即切换那条路径的 `setMove: true`、四条 `RequireConst`
+  （ChargeUpBlock 9／DefensiveBlock 20／DmgThresholdIncrease 10／VentDebuffAmount 2）与
+  `RequireOverride("Guardian","BeforeDeath",1)` 全部在场；部署产物与工作区构建哈希逐字节相同
+  （AFTP 115,200 B；核心本轮未改）。
+- **更正 §2.43 的一处语义错误**：材料批把 `ModeShiftPower.AfterDamageReceived` 的立即转形态写成了
+  `setMove: false`，源码调的是带默认值的 `TransitionToDefensiveMode()`（`setMove: true`）。差别是玩家在
+  自己回合把阈值打空时守护者会不会**当场**把当前意图改成 CLOSE_UP；本批改为 `true`。
+- 两处既有告警顺手清掉（不改语义）：删掉从不使用的 `_spireGrowthConstrictAmount` 字段；
+  `ReactivePower` 镜像改为在取不到 `MoveStateMachine` 时抛 `PredictionUnsupportedException`（原为 CS8602）。
+- 记录在案的一处表达差别：`SetMoveImmediate(..., mustPerform: true)` 的「本次一定执行」在
+  `ForceMonsterMove` 里没有对应物；守护者的 CLOSE_UP→ROLL_ATTACK→TWIN_SLAM 是线性链且 `_isOpen` 到
+  TWIN_SLAM 才复位，故等价（详见 §2.44）。
+- **未验证**：没有在游戏内打过「守护者」遭遇，形态切换的两种触发路径、三次形态往返、尖刺外壳的两处伤害
+  都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：守护者材料批（两个 Power 镜像 + BeforeCardPlayed 入口 + LoseBlock）（2026-09-21）
 
 - 求解器本体与 `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，

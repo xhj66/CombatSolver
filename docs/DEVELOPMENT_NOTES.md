@@ -12,6 +12,19 @@
 
 - 第三方适配新增两条「已复核事实」登记入口：`AfterDeathMirrors.RegisterIgnored(Type)` 让适配把逐行反编译确认无玩法影响的钩子重写按精确类型登记为忽略，`ThirdPartyAdapterRegistry.RegisterStableAttack` 让数值在意图构造时即固定的攻击行动不再被预测器报成「动态伤害」。前者修掉的是一条链式后果：未补偿 gap 的方法名一旦带 «Death»，`CombatBeamSolver` 就不承认该节点已打赢（边界被改写成 `UnsupportedEffect`），而 `Terminal` 又要求边界非 `UnsupportedEffect` 才肯记 `CombatEndedTurn`，于是整场战斗只能显示「预计战损 未知」、可信度掉到「低」。Act4Heart 1.1.7 的 `CorruptHeart.AfterDeath` 只调一次 `NRunMusicController.UpdateMusic`，已按此登记；三个怪物六条常量构造的攻击行动，其源码常量在适配自检里逐个钉死。链式证据见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §3.6，登记纪律见 [第三方适配](THIRD_PARTY_ADAPTERS.md) §2.13。
 
+## 未发布：第一幕精英守护者（`Guardian`）本体（2026-09-21）
+
+- 分支 `OFFENSIVE_BRANCH`（`!_isOpen` ⇒ CLOSE_UP，否则按行动历史里最后一个行动查表，不抽 RNG）声明为纯读取；
+  七个行动按源码顺序接上：CHARGE_UP（9 格挡）、FIERCE_BASH／WHIRLWIND（攻击前后置/清 `_isExecutingMove`，
+  收尾补延迟形态切换）、VENT_STEAM（2 虚弱 + 2 易伤）、CLOSE_UP（按 `SharpHideThorns` 挂尖刺外壳）、
+  ROLL_ATTACK（纯攻击）、TWIN_SLAM（攻击前转攻击形态、攻击后摘外壳再收尾）；`BeforeDeath` 在「正在挨攻击牌」
+  时按外壳层数给攻击来源补一刀 Unpowered。四个数值走常量核对，形态切换的两个共用函数分持
+  `setMove` 真/假两条路径。
+- **更正上一批的错误**：材料批把 `ModeShiftPower` 立即转形态那条路径写成了 `setMove: false`，源码是
+  `TransitionToDefensiveMode()`（默认 `setMove: true`）——差别是玩家在自己回合把阈值打空时守护者会不会
+  **当场**把当前意图改成 CLOSE_UP。
+- 顺手清掉适配层两条既有告警（未使用字段、`ReactivePower` 镜像的空引用解引用改为显式失败）。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.44。
 ## 未发布：本体新增「BeforeSideTurnStart」第三方 Power 登记（2026-09-21）
 
 - 与上一批的「常规回合末」对称：`TurnStartPowerSupport.TriggerBeforeSideTurnStart` 这个阶段本来就有派发点，
