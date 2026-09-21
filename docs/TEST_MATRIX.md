@@ -1,5 +1,22 @@
 # CombatSolver 测试清单
 
+## 未发布：第三幕戴卡（`Deca`）与 AFTP `PlatedArmorPower`（2026-09-21）
+
+- `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；
+  已部署产物反编译核对：`RequireType("ActsFromThePast.PlatedArmorPower")`、
+  `RequireOverride("PlatedArmorPower", {"BeforeSideTurnStart":4,"BeforeSideTurnEndEarly":3,
+  "AfterDamageReceived":6})`、`RequireConst("Deca","ProtectBlock",16)` 与
+  `("Deca","ProtectPlatedArmorAmount",3)`、`DecaBeam`（2 张 Dazed 进弃牌堆底部）、
+  `DecaSquareOfProtection`（存活队友 16 格挡 + 3 层镀甲）、
+  `RegisterSideTurnStartPower("PlatedArmorPower", …)`（上一轮新入口的第一家用户）、
+  `BeforeSideTurnEndMirrors.RegisterEarly` 与 `AfterDamageReceivedMirrors.Register` 三个钩子全部在场；
+  部署产物与工作区构建哈希逐字节相同（AFTP 75,776 B；核心本轮未改）。
+- 纪律相关：`PlatedArmorPower.AfterDamageReceived` 里「层数归零且持有者是甲壳寄生虫 → `OnArmorBreak()`」
+  这一支**按纪律显式失败**（抛 `PredictionUnsupportedException`），因为 `ShelledParasite` 尚未适配；
+  不静默跳过，等那只怪适配时再接上。
+- **未验证**：没有在游戏内打过「戴卡与多努」遭遇，第 1 回合补格挡、回合末镀甲格挡、受击减层与
+  2 张 Dazed 的入堆位置都**未实机验证**；也没有最小差分夹具。
+- 结构门禁仍未执行（本机没有 PowerShell 7）。
 ## 未发布：第三幕多努（`Donu`）（2026-09-21）
 
 - `CombatSolver-AFTP` 适配 Release 构建通过（0 error；仅离线还原的 NU1900 警告，无编译器警告）；

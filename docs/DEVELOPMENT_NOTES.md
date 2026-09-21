@@ -23,6 +23,17 @@
   `Byrd` 的 `FlightPower`（前者本轮已具备全部三钩，后者还差 `ModifyDamageMultiplicative` 与 `AfterRemoved`）。
   文档已同步：docs/THIRD_PARTY_ADAPTERS.md §2.13／§6、AFTP 状态 §4.1、TEST_MATRIX。
 - 本轮只落入口，没有 AFTP 侧用户：第一家下一轮接。
+## 未发布：第三幕戴卡（`Deca`）与 AFTP `PlatedArmorPower`（2026-09-21）
+
+- 与 §2.27 的多努同场：`Deca` 的行动在 `BEAM`／`SQUARE_OF_PROTECTION` 之间交替（没有分支），需要两条
+  行动效果（2 张 Dazed 进弃牌堆底部；给全体存活队友 16 格挡 + 3 层镀甲）。它挂的是 AFTP 自己的
+  `PlatedArmorPower`（不是原版 `PlatingPower`，而原版那条在核心里按精确类型写死），所以 Power 的三个钩子
+  都要登记：`BeforeSideTurnStart`（第 1 回合玩家侧开始时补格挡，用的是上一轮新增的
+  `RegisterSideTurnStartPower`，它是第一家用户）、`BeforeSideTurnEndEarly`（每回合按层数格挡）、
+  `AfterDamageReceived`（受击减 1 层）。
+- 减层那一条里，「层数归零且持有者是甲壳寄生虫 → `OnArmorBreak()`」按纪律**显式失败**
+  （`PredictionUnsupportedException`），等 `ShelledParasite` 适配时再接上——装一半比不装更糟。
+  逐条对照见 [AFTP / Act4Heart 适配状态](AFTP_ACT4HEART_STATUS.md) §2.28。
 ## 未发布：第三幕多努（`Donu`）（2026-09-21）
 
 - 第三幕再补一只（与 Deca 同场，Deca 的 `PlatedArmorPower` 三钩下一批做）：`Donu` 的行动在

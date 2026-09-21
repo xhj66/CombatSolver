@@ -740,6 +740,29 @@ COUNT 确实没有减益这三条都**未实机验证**（第三条来自反编�
 也没有最小差分夹具。
 ---
 
+### 2.28 第三幕：戴卡（`Deca`）与它挂的 AFTP `PlatedArmorPower`
+
+`Deca` 与 §2.27 的 `Donu` 同场：行动在 `BEAM` 与 `SQUARE_OF_PROTECTION` 之间固定交替（没有分支），
+开场 `Artifact`（A9+ 3／否则 2）在 `AfterAddedToRoom`（已在根里）。它挂的**不是原版 `PlatingPower`**，
+而是 AFTP 自己的 `PlatedArmorPower`——原版那一条在核心里是按精确类型写死在
+`TurnStartPowerSupport.TriggerBeforeSideTurnStart` 里的，第三方类型落不进去，所以这个 Power 的三个钩子
+都要登记（其中第一个用的就是上一轮新增的 `RegisterSideTurnStartPower`，它是**第一家用户**）。
+
+| 部位 | 源码（`ActsFromThePast`） | 适配 |
+| --- | --- | --- |
+| `BEAM` | `MultiAttackIntent(BeamDamage, 2)` ＋ 回调塞 2 张 `Dazed` 进**弃牌堆底部** | 攻击由通用攻击循环结算；`DecaBeam` 补 `AddToCombat<Dazed>(player, Discard, 2, null, Bottom)` |
+| `SQUARE_OF_PROTECTION` | 给每个存活队友（含自己）`ProtectBlock`(16) 点格挡（`Move`）＋ `ProtectPlatedArmorAmount`(3) 层 `PlatedArmorPower` | `DecaSquareOfProtection`：遍历 `GetTeammatesOf`、按模拟状态判存活，`simulator.GainBlock(…, Move)` ＋ `combat.ApplyPower(PlatedArmorPower 类型, teammate, 3, deca)`；两个数值都 `RequireConst` 钉死 |
+| `PlatedArmorPower.BeforeSideTurnStart` | `Owner.Side == Enemy && side == Player && RoundNumber == 1` 时按层数补一次 `Unpowered` 格挡 | `RegisterSideTurnStartPower("PlatedArmorPower", …)`：判据用 `combat.CurrentSide`／`combat.RoundNumber`／`Owner.IsEnemy` 逐字表达 |
+| `PlatedArmorPower.BeforeSideTurnEndEarly` | `side == Owner.Side` 时按层数获得 `Unpowered` 格挡 | `BeforeSideTurnEndMirrors.RegisterEarly(类型, …)`（既有入口） |
+| `PlatedArmorPower.AfterDamageReceived` | 持有者吃到未被格挡的 `Move` 伤害（非 `Unpowered`）时减 1 层；层数归零且持有者是**甲壳寄生虫**时再调 `OnArmorBreak()` | `AfterDamageReceivedMirrors.Register(类型, …)`：减层用效果槽的负层数 Apply；**`OnArmorBreak` 那条按纪律显式失败**（抛 `PredictionUnsupportedException`），等 `ShelledParasite` 适配时再接上，而不是静默跳过 |
+
+自检用 `AfpReflection.RequireOverride` 把这三个重写的参数个数（4／3／6）钉死，类型用
+`RequireType("ActsFromThePast.PlatedArmorPower")` 解析。
+
+**未验证**：没有在游戏内打过「戴卡与多努」遭遇，第 1 回合的补格挡、每回合的镀甲格挡、受击减层与
+2 张 Dazed 的入堆位置都**未实机验证**；也没有最小差分夹具。`OnArmorBreak` 那条路径本轮只会显式失败。
+---
+
 ## 3. 心脏（Act4Heart）适配：已落地
 
 Act4Heart 是闭源 Mod（创意工坊 `3747537811`，`id=Act4Heart`、`version=1.1.7`、
@@ -983,7 +1006,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 组 | 需要什么 | 第一幕 | 第二幕 | 第三幕 |
 | --- | --- | --- | --- | --- |
 | 0 | 只有常量攻击 + 无分支 | SpikeSlimeSmall、GremlinSneaky | ✔ Pointy（§2.14，零登记即完整）、✔ TorchHead（§2.18，同型） | ✔ SnakeDagger（§2.19，自身离场走 `RegisterOwnerRemovingMove`） |
-| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24）、✔ Reptomancer（§2.25）、✔ Exploder（§2.26）、✔ Donu（§2.27；Deca 见 §2.28） |
+| 1 | 分支只读自身标量／队友数 | ✔ GremlinShield（§2.12） | ✔ Centurion、GremlinLeader（同缺私有 RNG → 已有该能力）、✔ Mystic（§2.13）、✔ Mugger（§2.14）、✔ BookOfStabbing（§2.17，分支写自身计数 + 动态攻击值） | ✔ Repulsor、✔ Spiker（§2.20）、✔ OrbWalker（§2.21）、✔ SpireGrowth（§2.22）、✔ Maw（§2.23）、✔ GiantHead（§2.24）、✔ Reptomancer（§2.25）、✔ Exploder（§2.26）、✔ Donu（§2.27）、✔ Deca（§2.28） |
 | 1b | 无分支但行动带效果 | — | ✔ Bear、✔ Taskmaster（§2.14）、✔ Chosen、✔ Champ（§2.16） | — |
 | 2 | 第三方怪物生成（召唤／分裂／复活） | AcidSlimeLarge、SpikeSlimeLarge、SlimeBoss（SPLIT） | BronzeAutomaton、Collector、GremlinLeader、Byrd（复活？） | AwakenedOne（REBIRTH）、Darkling（REATTACH）、Reptomancer |
 | 3 | 私有 `MonsterModel.Rng` 镜像（照 §3.3 盾兵球位那套） | ✔ GremlinShield（§2.12） | Centurion、GremlinLeader | WrithingMass（`Rng?`） |
@@ -1048,7 +1071,7 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 
 | 档 | 怪物 | 依据 |
 | --- | --- | --- |
-| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）、`Donu`（§2.27） | 完整读过 |
+| **已适配** | `Repulsor`、`SnakeDagger`（§2.19）、`Spiker`（§2.20）、`OrbWalker`（§2.21）、`SpireGrowth`（§2.22）、`Maw`（§2.23）、`GiantHead`（§2.24）、`Reptomancer`（§2.25）、`Exploder`（§2.26）、`Donu`（§2.27）、`Deca`（§2.28） | 完整读过 |
 | 只缺「已有能力」的登记活 | —（第三幕这一档已清空；`Deca`/`Donu` 等仍在下一档） | — |
 | 卡在本体能力上 | `Exploder`：源码的 `EXPLODE` 用 **`CreatureCmd.Damage`（直伤）**而不是 `DamageCmd.Attack`，而它的 `DeathBlowIntent` 是攻击意图、会被通用攻击循环当攻击结算——要精确复刻就得有「这条第三方行动的意图伤害不由通用攻击循环结算」的入口；`Transient`：`ShiftingPower` 要给自己的 `TemporaryStrengthPower` 子类施加负力量（需要按 `Type` 施加临时力量的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪）；`Deca`/`Donu`：AFTP 自己的 `PlatedArmorPower` 要 `BeforeSideTurnStart`（第 1 回合给格挡）；`Maw`/`GiantHead`：`NOMNOMNOM_MULTI`/`IT_IS_TIME` 是 `Dynamic*AttackIntent`（动态攻击值已就绪，但两只都还要 `BeforeDeath` 与分支）；`Nemesis`：自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化；`WrithingMass`：分支用私有 RNG 抽行动；`Darkling`/`AwakenedOne`：复活/重生（`DEAD_MOVE`/`REATTACH_MOVE`/`REBIRTH` 与内部数据）；`TimeEater`：`TimeWarpPower` 的回合计数与 `HASTE` | 完整读过 `Exploder`／`Transient`／`Deca`／`OrbWalker`；其余为成员清单初判 |
 
@@ -1080,7 +1103,6 @@ public SingleAttackIntent(int damage)            { DamageCalc = () => damage; }
 | 二 | `SnakePlant` | `MalleablePower`：`AfterDamageReceived`（累加 `_pendingBlock` 并 +1 层）+ `AfterAttack`（给格挡）+ **常规回合末**清零与回滚层数（入口已就绪）；私有 `_pendingBlock` 要进 `PowerHiddenStateMirrors` |
 | 二 | `Byrd` | `BeforeSideTurnStart` 分发点（`FlightPower` 每回合回滚层数）+ 第三方 `ModifyDamageMultiplicative` 入口 + `AfterRemoved`（Power 被移除时把 Byrd 打落并眩晕） |
 | 三 | `Transient` | 按 `Type` 施加**第三方 `TemporaryStrengthPower` 子类**（`ShiftingStrengthDownPower`）的入口；`FadingPower` 用的 `BeforeSideTurnEndEarly` 与动态攻击值都已就绪 |
-| 三 | `Deca` | AFTP 自己的 `PlatedArmorPower` 三钩：`BeforeSideTurnStart`（第 1 回合给格挡，**入口已就绪**）＋ `BeforeSideTurnEndEarly`（每回合格挡）＋ `AfterDamageReceived`（减层）；`BEAM` 还要塞 2 张 Dazed 进弃牌堆底部。`Donu` 已适配（§2.27） |
 | 三 | `Nemesis` | 自身 `AfterSideTurnEnd` 重写（入口已就绪）+ 无实体化 + `AfterPowerAmountChanged` + `BeforeDeath` |
 | 三 | `WrithingMass` | 分支用**私有 RNG** 抽行动（`MonsterRngSupport` 已就绪）+ 5 个行动 + `AfterAddedToRoom` |
 | 三 | `Darkling` | 复活/重接（`DEAD_MOVE`／`REATTACH_MOVE` + 内部数据 + `ShouldFadeAfterDeath`／`ShouldDisappearFromDoom` 重写） |

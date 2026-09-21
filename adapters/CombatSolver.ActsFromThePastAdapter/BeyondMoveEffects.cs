@@ -6,7 +6,9 @@ using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
+using CombatSolver.Engine.InCombat.Mirrors.Hooks.Damage;
 using CombatSolver.Engine.InCombat.Mirrors.Hooks.Death;
+using CombatSolver.Engine.InCombat.Mirrors.Hooks.TurnEnd;
 using CombatSolver.Engine.InCombat.Simulation;
 namespace CombatSolver.ActsFromThePastAdapter;
 
@@ -31,7 +33,15 @@ internal static class BeyondMoveEffects
         "Reptomancer",
         "Exploder",
         "Donu",
+        "Deca",
     ];
+
+    /// <summary>AFTP 自己的 <c>PlatedArmorPower</c>（与原版 <c>PlatingPower</c> 是两个类型）。</summary>
+    private static Type _platedArmorType = null!;
+
+    /// <summary>Deca 的「保护之方」给每个存活队友的格挡与镀甲层数。</summary>
+    private static int _decaProtectBlock;
+    private static int _decaProtectPlatedArmor;
 
     /// <summary>Donu 的「保护之环」给每个存活队友的力量（AFTP <c>CircleStrengthAmount</c>）。</summary>
     private static int _donuCircleStrengthAmount;
@@ -73,6 +83,12 @@ internal static class BeyondMoveEffects
         _snakeDaggerType = AfpReflection.RequireType("ActsFromThePast.SnakeDagger");
         ExploderCountdown = AfpReflection.RequireConst("Exploder", "ExplosiveCountdown", 3);
         _donuCircleStrengthAmount = AfpReflection.RequireConst("Donu", "CircleStrengthAmount", 3);
+        _platedArmorType = AfpReflection.RequireType("ActsFromThePast.PlatedArmorPower");
+        _ = AfpReflection.RequireOverride("PlatedArmorPower", "BeforeSideTurnStart", 4);
+        _ = AfpReflection.RequireOverride("PlatedArmorPower", "BeforeSideTurnEndEarly", 3);
+        _ = AfpReflection.RequireOverride("PlatedArmorPower", "AfterDamageReceived", 6);
+        _decaProtectBlock = AfpReflection.RequireConst("Deca", "ProtectBlock", 16);
+        _decaProtectPlatedArmor = AfpReflection.RequireConst("Deca", "ProtectPlatedArmorAmount", 3);
     }
 
     public static void RegisterAll()
@@ -159,6 +175,118 @@ internal static class BeyondMoveEffects
             "Donu",
             "CIRCLE_OF_PROTECTION",
             DonuCircleOfProtection);
+
+        // --- 戴卡（Deca，与 Donu 同场） ---
+        // 行动在 BEAM 与 SQUARE_OF_PROTECTION 之间交替（没有分支）；开场的 Artifact 在 AfterAddedToRoom。
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect("Deca", "BEAM", DecaBeam);
+        ThirdPartyAdapterRegistry.RegisterMonsterMoveEffect(
+            "Deca",
+            "SQUARE_OF_PROTECTION",
+            DecaSquareOfProtection);
+        // AFTP 自己的 PlatedArmorPower（Deca 的「保护之方」挂的那一个）：三个钩子逐一登记。
+        ThirdPartyAdapterRegistry.RegisterSideTurnStartPower("PlatedArmorPower", PlatedArmorStart);
+        BeforeSideTurnEndMirrors.RegisterEarly(_platedArmorType, PlatedArmorTurnEnd);
+        AfterDamageReceivedMirrors.Register(_platedArmorType, PlatedArmorDamageReceived);
+    }
+
+    /// <summary>Deca.Beam：两段攻击由通用攻击循环结算，这里补攻击后塞进弃牌堆底部的 2 张 Dazed。</summary>
+    private static bool DecaBeam(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = combat;
+        _ = move;
+        _ = plannedChoices;
+        killedOwner = false;
+        simulator.AddToCombat<Dazed>(player, PileType.Discard, 2, null, CardPilePosition.Bottom);
+        return true;
+    }
+
+    /// <summary>
+    /// Deca.SquareOfProtection：给每个存活队友（含自己）<c>ProtectBlock</c> 点格挡（<c>Move</c>）与
+    /// <c>ProtectPlatedArmorAmount</c> 层 AFTP <c>PlatedArmorPower</c>。
+    /// </summary>
+    private static bool DecaSquareOfProtection(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        ForecastMove move,
+        Creature player,
+        IReadOnlyList<PlanCardChoice>? plannedChoices,
+        out bool killedOwner)
+    {
+        _ = player;
+        _ = plannedChoices;
+        killedOwner = false;
+        foreach (Creature teammate in combat.GetTeammatesOf(move.Owner))
+        {
+            if (!simulator.State.GetCreature(teammate).IsAlive)
+                continue;
+            simulator.GainBlock(teammate, _decaProtectBlock, ValueProp.Move);
+            combat.ApplyPower(_platedArmorType, teammate, _decaProtectPlatedArmor, move.Owner);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// AFTP <c>PlatedArmorPower.BeforeSideTurnStart</c>：只在**第 1 回合、玩家侧开始时**，
+    /// 敌人身上的镀甲按层数补一次 <c>Unpowered</c> 格挡（判据与源码逐字一致：
+    /// <c>Owner.Side == Enemy &amp;&amp; side == Player &amp;&amp; RoundNumber == 1</c>）。
+    /// </summary>
+    private static void PlatedArmorStart(
+        CombatPredictionSimulator simulator,
+        SimulatedCombatState combat,
+        PowerModel power)
+    {
+        if (combat.CurrentSide != CombatSide.Player || combat.RoundNumber != 1 || !power.Owner.IsEnemy)
+            return;
+        simulator.GainBlock(power.Owner, power.Amount, ValueProp.Unpowered);
+    }
+
+    /// <summary>AFTP <c>PlatedArmorPower.BeforeSideTurnEndEarly</c>：自己那一方回合末按层数获得格挡。</summary>
+    private static void PlatedArmorTurnEnd(AbstractModel model, BeforeSideTurnEndMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Side != power.Owner.Side)
+            return;
+        context.Simulator.GainBlock(power.Owner, power.Amount, ValueProp.Unpowered);
+    }
+
+    /// <summary>
+    /// AFTP <c>PlatedArmorPower.AfterDamageReceived</c>：持有者吃到**未被格挡的 <c>Move</c> 伤害**（不是
+    /// <c>Unpowered</c>）时减 1 层。
+    /// </summary>
+    /// <remarks>
+    /// 源码在层数归零且持有者是**甲壳寄生虫**时还会调 <c>OnArmorBreak()</c>；那只怪还没适配，
+    /// 所以这里**显式失败**而不是静默跳过——装一半比不装更糟。
+    /// </remarks>
+    private static void PlatedArmorDamageReceived(
+        AbstractModel model,
+        AfterDamageReceivedMirrorContext context)
+    {
+        PowerModel power = (PowerModel)model;
+        if (context.Target != power.Owner
+            || context.Result.UnblockedDamage <= 0
+            || !context.Props.HasFlag(ValueProp.Move)
+            || context.Props.HasFlag(ValueProp.Unpowered))
+        {
+            return;
+        }
+        ICombatPredictionEffectSink effects = context.CombatState as ICombatPredictionEffectSink
+            ?? throw new PredictionUnsupportedException("镀甲缺少可写的预测状态。");
+        effects.ApplyPower(_platedArmorType, power.Owner, -1, power.Applier);
+        if (power.Amount - 1 <= 0
+            && string.Equals(
+                power.Owner.Monster?.GetType().Name,
+                "ShelledParasite",
+                StringComparison.Ordinal))
+        {
+            throw new PredictionUnsupportedException(
+                "镀甲层数归零时的甲壳寄生虫破甲（OnArmorBreak）还没有适配。");
+        }
     }
 
     /// <summary>
